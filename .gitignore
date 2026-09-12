@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+test*
+build_*
+write_hex.py
+.DS_Store
+Thumbs.db
