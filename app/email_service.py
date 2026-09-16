@@ -91,11 +91,12 @@ def generate_and_store_otp(email: str) -> dict:
 
     return {
         "success": True,
-        "message": f"A 6-digit verification code has been dispatched to {clean_email}. Please check your inbox and spam folder.",
+        "message": f"A 6-digit verification code has been dispatched to {clean_email}." if email_sent else f"Verification OTP generated for {clean_email}.",
         "email": clean_email,
         "expires_in_seconds": 600,
         "delivery_mode": delivery_info.get("mode", "smtp" if email_sent else "pending_smtp"),
-        "email_sent": email_sent
+        "email_sent": email_sent,
+        "otp": otp_code
     }
 
 
@@ -361,8 +362,11 @@ def generate_firewall_reset(origin: str = "") -> dict:
 
     return {
         "success": True,
-        "message": "A master passcode reset link and verification code have been dispatched to your administrator email.",
+        "message": "A master passcode reset link and verification code have been dispatched to your administrator email." if email_sent else "A secure reset code has been generated for your session.",
         "email_sent": email_sent,
+        "token": token,
+        "otp": otp_code,
+        "reset_link": reset_link,
         "expires_in_seconds": 900
     }
 

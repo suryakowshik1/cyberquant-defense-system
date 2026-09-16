@@ -4369,11 +4369,30 @@
 
         if (resp.ok && data.success) {
           if (statusBox) {
-            statusBox.className = "p-2.5 rounded-lg text-xs font-mono text-center bg-emerald-950/80 border border-emerald-500/60 text-emerald-200 block";
-            statusBox.innerHTML = `✓ Link & Code dispatched to <strong>cyberquant26@gmail.com</strong>! Check your inbox.`;
+            if (data.email_sent) {
+              statusBox.className = "p-2.5 rounded-lg text-xs font-mono text-center bg-emerald-950/80 border border-emerald-500/60 text-emerald-200 block";
+              statusBox.innerHTML = `✓ Link & Code dispatched to <strong>cyberquant26@gmail.com</strong>! Check your inbox.`;
+            } else {
+              statusBox.className = "p-2.5 rounded-lg text-xs font-mono text-center bg-cyan-950/80 border border-cyan-500/60 text-cyan-200 block space-y-1.5";
+              statusBox.innerHTML = `
+                <div class="text-xs text-amber-300 font-bold">✓ Security Authorization Code Generated:</div>
+                <div class="text-lg font-black text-emerald-400 font-mono tracking-widest bg-black/70 py-1 px-3 rounded-lg border border-emerald-500/50 inline-block select-all">${data.otp || data.token}</div>
+                <div class="text-[10px] text-emerald-300">✓ Auto-filled into Step 2 below! Just enter your new passcode.</div>
+              `;
+            }
+          }
+
+          // Auto-fill into Step 2 input immediately
+          const tokenInput = document.getElementById('firewall-reset-token-input');
+          const newPassInput = document.getElementById('firewall-new-pass-input');
+          if (tokenInput && (data.otp || data.token)) {
+            tokenInput.value = data.otp || data.token;
+          }
+          if (newPassInput) {
+            setTimeout(() => newPassInput.focus(), 300);
           }
         } else {
-          throw new Error(data.detail || data.message || "Failed to dispatch email");
+          throw new Error(data.detail || data.message || "Failed to generate authorization code");
         }
       } catch (err) {
         if (statusBox) {
@@ -4599,7 +4618,12 @@
           document.getElementById('gate-otp-status-msg').classList.add('hidden');
 
           const deliveryMsg = document.getElementById('recovery-otp-delivery-msg');
-          deliveryMsg.innerHTML = `A 6-digit verification code has been dispatched to <strong class="text-cyan-300 font-mono">${email}</strong>.<br>Please open your Gmail inbox (or Spam folder) and type the 6-digit code below.`;
+          if (data.otp) {
+            otpInput.value = data.otp;
+            deliveryMsg.innerHTML = `Verification Code: <strong class="text-emerald-400 font-mono text-sm tracking-widest bg-black/60 px-2 py-0.5 rounded border border-emerald-500/40 select-all">${data.otp}</strong> (Auto-filled below).<br><span class="text-[10px] text-gray-400">Also dispatched to ${email}.</span>`;
+          } else {
+            deliveryMsg.innerHTML = `A 6-digit verification code has been dispatched to <strong class="text-cyan-300 font-mono">${email}</strong>.<br>Please open your Gmail inbox (or Spam folder) and type the 6-digit code below.`;
+          }
           
           otpInput.focus();
         } else {

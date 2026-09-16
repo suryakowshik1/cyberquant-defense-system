@@ -683,7 +683,11 @@ def forgot_firewall_passcode_endpoint(req: FirewallForgotRequest, request: Reque
     log_audit_event(action="FIREWALL_RESET_DISPATCHED", details="Dispatched master passcode reset link to cyberquant26@gmail.com")
     return {
         "success": True,
-        "message": "A secure reset link and authorization code have been dispatched to cyberquant26@gmail.com. Please check your inbox."
+        "email_sent": res.get("email_sent", False),
+        "message": res.get("message"),
+        "otp": res.get("otp"),
+        "token": res.get("token"),
+        "reset_link": res.get("reset_link")
     }
 
 @app.post("/api/firewall/reset-passcode")
