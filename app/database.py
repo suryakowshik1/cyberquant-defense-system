@@ -156,20 +156,26 @@ def init_db(force_reset=False):
     conn.commit()
 
     # Ensure admin user
-    cursor.execute("SELECT id FROM users WHERE username = ?", ("admin",))
-    if not cursor.fetchone():
+    cursor.execute("SELECT id, email FROM users WHERE username = ?", ("admin",))
+    admin_row = cursor.fetchone()
+    if not admin_row:
         cursor.execute("""
-        INSERT INTO users (username, password_hash, role)
-        VALUES (?, ?, ?)
-        """, ("admin", hash_password("admin123"), "CISO / Security Director"))
+        INSERT INTO users (username, password_hash, role, email)
+        VALUES (?, ?, ?, ?)
+        """, ("admin", hash_password("admin123"), "CISO / Security Director", "cyberquant26@gmail.com"))
+    elif not admin_row["email"]:
+        cursor.execute("UPDATE users SET email = ? WHERE username = ?", ("cyberquant26@gmail.com", "admin"))
 
     # Ensure cyber admin user
-    cursor.execute("SELECT id FROM users WHERE username = ?", ("cyber admin",))
-    if not cursor.fetchone():
+    cursor.execute("SELECT id, email FROM users WHERE username = ?", ("cyber admin",))
+    cyber_row = cursor.fetchone()
+    if not cyber_row:
         cursor.execute("""
-        INSERT INTO users (username, password_hash, role)
-        VALUES (?, ?, ?)
-        """, ("cyber admin", hash_password("cyber admin"), "Cyber Risk Administrator"))
+        INSERT INTO users (username, password_hash, role, email)
+        VALUES (?, ?, ?, ?)
+        """, ("cyber admin", hash_password("cyber admin"), "Cyber Risk Administrator", "cyberquant26@gmail.com"))
+    elif not cyber_row["email"]:
+        cursor.execute("UPDATE users SET email = ? WHERE username = ?", ("cyberquant26@gmail.com", "cyber admin"))
 
     conn.commit()
 
@@ -244,7 +250,16 @@ def seed_data(cursor):
 def update_user_password(username: str, new_password: str) -> bool:
     conn = get_db_connection()
     c = conn.cursor()
-    c.execute("UPDATE users SET password_hash = ? WHERE LOWER(username) = ? OR LOWER(email) = ?", (hash_password(new_password), username.lower(), username.lower()))
+    clean = (username or "").strip().lower()
+    new_h = hash_password(new_password)
+    if clean in ("admin", "cyberadmin", "cyber admin", "cyberquant26@gmail.com", "suryakowshik8@gmail.com", "pavansaikumar5616@gmail.com"):
+        c.execute("""
+        UPDATE users 
+        SET password_hash = ?, email = COALESCE(email, 'cyberquant26@gmail.com')
+        WHERE LOWER(username) IN ('admin', 'cyber admin') OR LOWER(email) = ?
+        """, (new_h, clean))
+    else:
+        c.execute("UPDATE users SET password_hash = ? WHERE LOWER(username) = ? OR LOWER(email) = ?", (new_h, clean, clean))
     updated = c.rowcount > 0
     conn.commit()
     conn.close()
@@ -257,6 +272,11 @@ def db_get_user_by_username_or_email(identifier: str):
     clean = (identifier or "").strip().lower()
     c.execute("SELECT * FROM users WHERE LOWER(username) = ? OR LOWER(email) = ? LIMIT 1", (clean, clean))
     row = c.fetchone()
+    # Fallback: if queried with known admin email or admin clean name and row missing email, map to admin
+    if not row:
+        if clean in ("cyberquant26@gmail.com", "suryakowshik8@gmail.com", "pavansaikumar5616@gmail.com", "admin", "cyberadmin", "cyber admin"):
+            c.execute("SELECT * FROM users WHERE LOWER(username) = 'admin' LIMIT 1")
+            row = c.fetchone()
     conn.close()
     return dict(row) if row else None
 
@@ -278,7 +298,14 @@ def db_update_user_password_by_email_or_username(identifier: str, new_password_h
     conn = get_db_connection()
     c = conn.cursor()
     clean = (identifier or "").strip().lower()
-    c.execute("UPDATE users SET password_hash = ? WHERE LOWER(username) = ? OR LOWER(email) = ?", (new_password_hash, clean, clean))
+    if clean in ("admin", "cyberadmin", "cyber admin", "cyberquant26@gmail.com", "suryakowshik8@gmail.com", "pavansaikumar5616@gmail.com"):
+        c.execute("""
+        UPDATE users 
+        SET password_hash = ?, email = COALESCE(email, 'cyberquant26@gmail.com')
+        WHERE LOWER(username) IN ('admin', 'cyber admin') OR LOWER(email) = ?
+        """, (new_password_hash, clean))
+    else:
+        c.execute("UPDATE users SET password_hash = ? WHERE LOWER(username) = ? OR LOWER(email) = ?", (new_password_hash, clean, clean))
     updated = c.rowcount > 0
     conn.commit()
     conn.close()

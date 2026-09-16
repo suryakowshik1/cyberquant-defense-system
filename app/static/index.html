@@ -3769,6 +3769,9 @@
         });
         const data = await resp.json();
         if (resp.ok && data.success) {
+          if (data.auth_vault) {
+            localStorage.setItem('cyber_auth_vault', data.auth_vault);
+          }
           // Registration successful -> Access Granted!
           await showFullScreenAccessGranted(data.token, data.role || data.username);
         } else {
@@ -3819,13 +3822,17 @@
       }
 
       try {
+        const authVault = localStorage.getItem('cyber_auth_vault') || '';
         const resp = await apiFetch('/api/auth/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username, password })
+          body: JSON.stringify({ username, password, auth_vault: authVault })
         });
         const data = await resp.json();
         if (resp.ok && data.success) {
+          if (data.auth_vault) {
+            localStorage.setItem('cyber_auth_vault', data.auth_vault);
+          }
           // Success: Show Full Screen ACCESS GRANTED (Matching Access Denied Layout)
           await showFullScreenAccessGranted(data.token, data.role || data.username);
         } else {
@@ -4066,6 +4073,9 @@
         });
         const data = await resp.json();
         if (resp.ok && data.success) {
+          if (data.auth_vault) {
+            localStorage.setItem('cyber_auth_vault', data.auth_vault);
+          }
           closeRecoveryModal();
           await showFullScreenAccessGranted(data.token, data.role || data.username);
         } else {
@@ -4094,6 +4104,9 @@
         });
         const data = await resp.json();
         if (resp.ok && data.success) {
+          if (data.auth_vault) {
+            localStorage.setItem('cyber_auth_vault', data.auth_vault);
+          }
           closeRecoveryModal();
           await showFullScreenAccessGranted(data.token, data.role || data.username);
         } else {

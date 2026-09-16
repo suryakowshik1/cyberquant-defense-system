@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 class LoginRequest(BaseModel):
     username: str = Field(..., description="Administrator username or authorized email")
     password: str = Field(..., description="User password")
+    auth_vault: Optional[str] = Field(None, description="Optional HMAC auth sync token")
 
 class LoginResponse(BaseModel):
     success: bool
