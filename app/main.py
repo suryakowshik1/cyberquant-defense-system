@@ -79,25 +79,41 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 # 3. Path Normalization Middleware for Vercel Serverless Function rewrites
 @app.middleware("http")
 async def path_normalization_middleware(request: Request, call_next):
-    # In Vercel serverless functions, x-matched-path or x-forwarded-uri carries the true client request path
-    real_path = request.headers.get("x-matched-path") or request.headers.get("x-forwarded-uri") or request.url.path
-    if "?" in real_path:
-        real_path = real_path.split("?")[0]
-        
-    # If the scope path became /api/index.py or lost its target route
-    if request.scope.get("path") in ("/api/index.py", "/api/index", "/index.py"):
-        if real_path and real_path not in ("/api/index.py", "/api/index", "/index.py"):
-            request.scope["path"] = real_path
+    # 1. First check if Vercel rewrite passed original path as a query param
+    custom_path = request.query_params.get("__path")
+    if custom_path:
+        if not custom_path.startswith("/"):
+            custom_path = "/" + custom_path
+        if not custom_path.startswith("/api"):
+            custom_path = "/api" + custom_path
+        request.scope["path"] = custom_path
+    else:
+        # 2. In Vercel serverless functions, x-forwarded-uri, x-original-url, or x-matched-path carries the true client request path
+        real_path = (
+            request.headers.get("x-forwarded-uri") or 
+            request.headers.get("x-original-url") or 
+            request.headers.get("x-matched-path") or 
+            request.scope.get("path") or 
+            request.url.path
+        )
+        if "?" in real_path:
+            real_path = real_path.split("?")[0]
+            
+        # If the scope path became /api/index.py or /index.py or lost its target route
+        if request.scope.get("path") in ("/api/index.py", "/api/index", "/index.py", "/api"):
+            if real_path and real_path not in ("/api/index.py", "/api/index", "/index.py", "/api"):
+                request.scope["path"] = real_path
 
-    # If Vercel stripped the /api prefix, prepend it so FastAPI routes match cleanly
-    cur_path = request.scope.get("path", "")
-    if not cur_path.startswith("/api") and any(cur_path.startswith(p) for p in [
-        "/auth", "/dashboard", "/scans", "/scan-website", "/assets", 
-        "/vulnerabilities", "/controls", "/optimize", "/simulate", "/monte-carlo", "/health", "/audit"
-    ]):
-        request.scope["path"] = "/api" + cur_path
+        # 3. If Vercel stripped the /api prefix, prepend it so FastAPI routes match cleanly
+        cur_path = request.scope.get("path", "")
+        if not cur_path.startswith("/api") and any(cur_path.startswith(p) for p in [
+            "/auth", "/dashboard", "/scans", "/scan-website", "/assets", 
+            "/vulnerabilities", "/controls", "/optimize", "/simulate", "/monte-carlo", "/health", "/audit"
+        ]):
+            request.scope["path"] = "/api" + cur_path
 
     return await call_next(request)
+
 
 
 # Helper Data Fetchers
@@ -177,6 +193,7 @@ def delete_scan_endpoint(scan_id: int):
 # Auth & Access Control API
 @app.get("/api/auth/recovery-emails")
 @app.get("/auth/recovery-emails")
+@app.get("/recovery-emails")
 def get_recovery_emails():
     return {
         "recovery_emails": AUTHORIZED_EMAILS
@@ -184,6 +201,7 @@ def get_recovery_emails():
 
 @app.post("/api/auth/login")
 @app.post("/auth/login")
+@app.post("/login")
 def login(creds: LoginRequest):
     raw_user = (creds.username or "").strip()
     raw_pass = (creds.password or "").strip()
@@ -269,6 +287,7 @@ def login(creds: LoginRequest):
 
 @app.post("/api/auth/forgot-password")
 @app.post("/auth/forgot-password")
+@app.post("/forgot-password")
 def forgot_password(req: ForgotPasswordRequest):
     res = generate_and_store_otp(req.email)
     if not res.get("success"):
@@ -280,6 +299,7 @@ def forgot_password(req: ForgotPasswordRequest):
 
 @app.post("/api/auth/verify-otp")
 @app.post("/auth/verify-otp")
+@app.post("/verify-otp")
 def verify_otp_endpoint(req: VerifyOtpRequest):
     val = verify_otp_code(req.email, req.otp, mark_used=False)
     if not val.get("valid"):
@@ -295,6 +315,7 @@ def verify_otp_endpoint(req: VerifyOtpRequest):
 
 @app.post("/api/auth/verify-otp-skip")
 @app.post("/auth/verify-otp-skip")
+@app.post("/verify-otp-skip")
 def verify_otp_skip(req: VerifyOtpSkipRequest):
     val = verify_otp_code(req.email, req.otp)
     if not val.get("valid"):
@@ -314,6 +335,7 @@ def verify_otp_skip(req: VerifyOtpSkipRequest):
 
 @app.post("/api/auth/reset-password")
 @app.post("/auth/reset-password")
+@app.post("/reset-password")
 def reset_password(req: ResetPasswordRequest):
     if not req.new_password or len(req.new_password.strip()) < 3:
         raise HTTPException(status_code=400, detail="New password must be at least 3 characters.")
@@ -348,6 +370,25 @@ def reset_password(req: ResetPasswordRequest):
         "role": "CISO / Security Director",
         "token": token
     }
+
+@app.post("/api/index.py")
+@app.post("/index.py")
+@app.post("/api")
+async def vercel_index_post_fallback(request: Request):
+    """Guaranteed fallback for serverless rewrites mapping directly to index.py"""
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
+    if "email" in data and "otp" not in data and "new_password" not in data:
+        return forgot_password(ForgotPasswordRequest(**data))
+    elif "email" in data and "otp" in data and "new_password" in data:
+        return reset_password(ResetPasswordRequest(**data))
+    elif "email" in data and "otp" in data:
+        return verify_otp_endpoint(VerifyOtpRequest(**data))
+    elif "username" in data and "password" in data:
+        return login(LoginRequest(**data))
+    raise HTTPException(status_code=404, detail="Endpoint not found on direct index.py invoke")
 
 
 @app.get("/api/auth/audit-logs")

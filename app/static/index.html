@@ -3490,6 +3490,44 @@
       }
     }
 
+    // Robust API Fetcher with Multi-layer Vercel Routing Fallbacks
+    async function apiFetch(url, options = {}) {
+      let resp = null;
+      try {
+        resp = await fetch(url, options);
+      } catch (e) {
+        console.warn('Initial fetch threw error:', e);
+      }
+      
+      // If successful or non-404, return response
+      if (resp && resp.status !== 404) {
+        return resp;
+      }
+      
+      // Fallback 1: Query param rewrite route: /api/index.py?__path=...
+      try {
+        const subPath = url.replace(/^\/api/, '');
+        const fallback1 = `/api/index.py?__path=${encodeURIComponent(subPath)}`;
+        const r1 = await fetch(fallback1, options);
+        if (r1 && (r1.ok || r1.status !== 404)) return r1;
+      } catch (e) {}
+
+      // Fallback 2: Without /api prefix (/auth/...)
+      try {
+        const subPath2 = url.replace(/^\/api/, '');
+        const r2 = await fetch(subPath2, options);
+        if (r2 && (r2.ok || r2.status !== 404)) return r2;
+      } catch (e) {}
+
+      // Fallback 3: Direct /api/index.py with payload inspection
+      try {
+        const r3 = await fetch('/api/index.py', options);
+        if (r3 && (r3.ok || r3.status !== 404)) return r3;
+      } catch (e) {}
+
+      return resp || new Response(JSON.stringify({ detail: 'Server unreachable. Please check connection.' }), { status: 503 });
+    }
+
     // Gate Login Handler
     async function handleGateLogin(e) {
       if (e && e.preventDefault) e.preventDefault();
@@ -3516,7 +3554,7 @@
       }
 
       try {
-        const resp = await fetch('/api/auth/login', {
+        const resp = await apiFetch('/api/auth/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ username, password })
@@ -3646,7 +3684,7 @@
       msgBox.innerText = 'Generating secure verification code...';
 
       try {
-        const resp = await fetch('/api/auth/forgot-password', {
+        const resp = await apiFetch('/api/auth/forgot-password', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email })
@@ -3704,7 +3742,7 @@
       lucide.createIcons();
 
       try {
-        const resp = await fetch('/api/auth/verify-otp', {
+        const resp = await apiFetch('/api/auth/verify-otp', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email: currentActiveRecoveryEmail, otp })
@@ -3754,7 +3792,7 @@
       }
 
       try {
-        const resp = await fetch('/api/auth/reset-password', {
+        const resp = await apiFetch('/api/auth/reset-password', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -3783,7 +3821,7 @@
       const statusMsg = document.getElementById('gate-choice-status-msg');
 
       try {
-        const resp = await fetch('/api/auth/verify-otp-skip', {
+        const resp = await apiFetch('/api/auth/verify-otp-skip', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
