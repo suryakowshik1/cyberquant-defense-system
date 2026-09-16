@@ -3,8 +3,20 @@ import sqlite3
 import json
 import hashlib
 import os
+import shutil
 
-DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'cyber_risk.db')
+# In Vercel serverless environment, filesystem is read-only except /tmp
+if os.environ.get("VERCEL"):
+    DB_PATH = "/tmp/cyber_risk.db"
+    orig_db = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'cyber_risk.db')
+    if os.path.exists(orig_db) and not os.path.exists(DB_PATH):
+        try:
+            shutil.copy2(orig_db, DB_PATH)
+        except Exception:
+            pass
+else:
+    DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'cyber_risk.db')
+
 
 def hash_password(password: str) -> str:
     return hashlib.sha256(password.encode('utf-8')).hexdigest()
