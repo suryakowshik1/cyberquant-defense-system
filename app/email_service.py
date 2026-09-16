@@ -161,7 +161,7 @@ def dispatch_otp_email(recipient_email: str, otp_code: str) -> dict:
     smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com") or "smtp.gmail.com"
     smtp_port = int(os.getenv("SMTP_PORT", "587") or "587")
     smtp_user = os.getenv("SMTP_USER", "cyberquant26@gmail.com").strip() or "cyberquant26@gmail.com"
-    smtp_pass = os.getenv("SMTP_PASS", "").strip()
+    smtp_pass = (os.getenv("SMTP_PASS") or "zffzpemfpvfxdvdg").replace(" ", "").strip()
     smtp_from = os.getenv("SMTP_FROM", "CyberQuant SOC Defense <cyberquant26@gmail.com>").strip() or "cyberquant26@gmail.com"
 
     if not smtp_user or not smtp_pass:
