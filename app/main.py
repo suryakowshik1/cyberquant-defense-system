@@ -28,7 +28,7 @@ from app.database import (
     db_get_all_assets, db_get_asset, db_create_asset, db_update_asset, db_delete_asset,
     db_get_all_vulnerabilities, db_get_vulnerability, db_create_vulnerability, db_update_vulnerability, db_delete_vulnerability,
     db_get_all_controls, db_get_control, db_create_control, db_update_control, db_delete_control,
-    db_reset_database
+    db_reset_database, db_get_firewall_passcode, db_set_firewall_passcode
 )
 from app.risk_engine import (
     evaluate_organization_risk, get_risk_level,
@@ -36,10 +36,14 @@ from app.risk_engine import (
 )
 from app.optimizer import run_knapsack_optimization
 from app.website_scanner import scan_website_vulnerabilities
-from app.email_service import generate_and_store_otp, verify_otp_code, AUTHORIZED_EMAILS
+from app.email_service import (
+    generate_and_store_otp, verify_otp_code, AUTHORIZED_EMAILS,
+    generate_firewall_reset, verify_firewall_reset, consume_firewall_reset
+)
 from app.models import (
     LoginRequest, LoginResponse, ForgotPasswordRequest, VerifyOtpRequest,
     VerifyOtpSkipRequest, ResetPasswordRequest, RegisterRequest, RegisterVerifyRequest,
+    FirewallVerifyRequest, FirewallForgotRequest, FirewallResetRequest,
     AssetCreate, AssetUpdate, AssetResponse,
     VulnerabilityCreate, VulnerabilityUpdate, VulnerabilityResponse,
     SecurityControlCreate, SecurityControlUpdate, SecurityControlResponse,
@@ -99,13 +103,27 @@ def get_state_cache_path():
         return "/tmp/cyber_active_state.json"
     return os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "active_state.json")
 
+ACTIVE_FIREWALL_PASSCODE = ["*121#"]
+
+def get_current_firewall_passcode() -> str:
+    db_val = db_get_firewall_passcode()
+    if db_val:
+        ACTIVE_FIREWALL_PASSCODE[0] = db_val
+    return ACTIVE_FIREWALL_PASSCODE[0]
+
+def set_current_firewall_passcode(new_pass: str):
+    ACTIVE_FIREWALL_PASSCODE[0] = new_pass.strip()
+    db_set_firewall_passcode(new_pass.strip())
+    save_state_cache()
+
 def save_state_cache():
     try:
         cache_path = get_state_cache_path()
         os.makedirs(os.path.dirname(cache_path), exist_ok=True)
         data = {
             "passwords": ACTIVE_PASSWORDS,
-            "users": ACTIVE_USERS
+            "users": ACTIVE_USERS,
+            "firewall_passcode": ACTIVE_FIREWALL_PASSCODE[0]
         }
         with open(cache_path, "w", encoding="utf-8") as f:
             json.dump(data, f)
@@ -122,10 +140,13 @@ def load_state_cache():
                     ACTIVE_PASSWORDS.update(data["passwords"])
                 if "users" in data and isinstance(data["users"], dict):
                     ACTIVE_USERS.update(data["users"])
+                if "firewall_passcode" in data and isinstance(data["firewall_passcode"], str):
+                    ACTIVE_FIREWALL_PASSCODE[0] = data["firewall_passcode"]
     except Exception as e:
         print(f"[STATE CACHE LOAD ERROR] {e}")
 
 load_state_cache()
+get_current_firewall_passcode()
 
 app = FastAPI(
     title="CyberQuant AI - Continuous Cyber Risk Quantification & Defense Platform",
@@ -182,7 +203,7 @@ async def path_normalization_middleware(request: Request, call_next):
         cur_path = request.scope.get("path", "")
         if not cur_path.startswith("/api") and any(cur_path.startswith(p) for p in [
             "/auth", "/dashboard", "/scans", "/scan-website", "/assets", 
-            "/vulnerabilities", "/controls", "/optimize", "/simulate", "/monte-carlo", "/health", "/audit"
+            "/vulnerabilities", "/controls", "/optimize", "/simulate", "/monte-carlo", "/health", "/audit", "/firewall"
         ]):
             request.scope["path"] = "/api" + cur_path
 
@@ -634,6 +655,61 @@ def reset_password(req: ResetPasswordRequest):
         "auth_vault": auth_vault
     }
 
+# --- Layer 7 Firewall Secret Passcode Authentication & Email Reset Endpoints ---
+@app.post("/api/firewall/verify-passcode")
+@app.post("/firewall/verify-passcode")
+def verify_firewall_passcode_endpoint(creds: FirewallVerifyRequest):
+    load_state_cache()
+    current = get_current_firewall_passcode()
+    entered = (creds.passcode or "").strip()
+    if entered == current:
+        log_audit_event(action="FIREWALL_UNLOCK_SUCCESS", details="Firewall panel unlocked via master passcode")
+        return {"success": True, "message": "Master passcode verified. Firewall unlocked."}
+    else:
+        log_audit_event(action="FIREWALL_UNLOCK_FAILED", details="Incorrect master passcode entered")
+        raise HTTPException(status_code=401, detail="Invalid master passcode. Access denied.")
+
+@app.post("/api/firewall/forgot-passcode")
+@app.post("/firewall/forgot-passcode")
+def forgot_firewall_passcode_endpoint(req: FirewallForgotRequest, request: Request):
+    origin = req.origin
+    if not origin:
+        origin = request.headers.get("origin") or request.headers.get("referer") or ""
+    origin = origin.rstrip("/")
+    res = generate_firewall_reset(origin)
+    if not res.get("success"):
+        log_audit_event(action="FIREWALL_RESET_DISPATCH_FAILED", details="Failed to dispatch firewall reset email")
+        raise HTTPException(status_code=500, detail=res.get("message", "Failed to send reset email."))
+    log_audit_event(action="FIREWALL_RESET_DISPATCHED", details="Dispatched master passcode reset link to cyberquant26@gmail.com")
+    return {
+        "success": True,
+        "message": "A secure reset link and authorization code have been dispatched to cyberquant26@gmail.com. Please check your inbox."
+    }
+
+@app.post("/api/firewall/reset-passcode")
+@app.post("/firewall/reset-passcode")
+def reset_firewall_passcode_endpoint(req: FirewallResetRequest):
+    load_state_cache()
+    code = (req.token_or_otp or "").strip()
+    new_pass = (req.new_passcode or "").strip()
+    if not code:
+        raise HTTPException(status_code=400, detail="Missing authorization code or reset token.")
+    if not new_pass or len(new_pass) < 4:
+        raise HTTPException(status_code=400, detail="New passcode must be at least 4 characters long.")
+
+    val = verify_firewall_reset(code)
+    if not val.get("valid"):
+        log_audit_event(action="FIREWALL_RESET_FAILED", details=f"Invalid or expired token: {val.get('message')}")
+        raise HTTPException(status_code=400, detail=val.get("message", "Invalid or expired reset token."))
+
+    consume_firewall_reset(code)
+    set_current_firewall_passcode(new_pass)
+    log_audit_event(action="FIREWALL_PASSCODE_CHANGED", details="Master firewall passcode was successfully changed via email verification")
+    return {
+        "success": True,
+        "message": "Master passcode successfully updated! You can now use your new passcode to unlock the firewall."
+    }
+
 @app.post("/api/index.py")
 @app.post("/index.py")
 @app.post("/api")
@@ -644,8 +720,17 @@ async def vercel_index_post_fallback(request: Request):
     except Exception:
         data = {}
 
+    # Check for Firewall Reset: new_passcode in data
+    if "new_passcode" in data and "token_or_otp" in data:
+        return reset_firewall_passcode_endpoint(FirewallResetRequest(**data))
+    # Check for Firewall Forgot: action == forgot_firewall or (firewall_action == forgot)
+    elif data.get("action") == "firewall_forgot" or data.get("firewall_action") == "forgot":
+        return forgot_firewall_passcode_endpoint(FirewallForgotRequest(**data), request)
+    # Check for Firewall Verify: passcode in data
+    elif "passcode" in data and "new_passcode" not in data and "username" not in data:
+        return verify_firewall_passcode_endpoint(FirewallVerifyRequest(**data))
     # Check for Register Request: email + username + password (no otp)
-    if "email" in data and "username" in data and "password" in data and "otp" not in data:
+    elif "email" in data and "username" in data and "password" in data and "otp" not in data:
         return register_request_endpoint(RegisterRequest(**data))
     # Check for Register Verify: email + otp (no new_password and pending exists)
     elif "email" in data and "otp" in data and "new_password" not in data and data.get("email", "").lower() in PENDING_REGISTRATIONS:

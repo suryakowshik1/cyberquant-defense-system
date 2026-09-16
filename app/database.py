@@ -153,6 +153,19 @@ def init_db(force_reset=False):
     )
     """)
 
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS system_settings (
+        setting_key TEXT PRIMARY KEY,
+        setting_value TEXT NOT NULL,
+        updated_at REAL NOT NULL
+    )
+    """)
+
+    # Seed default firewall master passcode if not present
+    cursor.execute("SELECT setting_value FROM system_settings WHERE setting_key = 'firewall_passcode'")
+    if not cursor.fetchone():
+        cursor.execute("INSERT OR IGNORE INTO system_settings (setting_key, setting_value, updated_at) VALUES ('firewall_passcode', ?, ?)", ('*121#', 0.0))
+
     conn.commit()
 
     # Ensure admin user
@@ -310,6 +323,39 @@ def db_update_user_password_by_email_or_username(identifier: str, new_password_h
     conn.commit()
     conn.close()
     return updated
+
+def db_get_firewall_passcode() -> str:
+    """Retrieves current master firewall passcode from DB (defaults to *121#)."""
+    default_pass = "*121#"
+    try:
+        conn = get_db_connection()
+        c = conn.cursor()
+        c.execute("CREATE TABLE IF NOT EXISTS system_settings (setting_key TEXT PRIMARY KEY, setting_value TEXT NOT NULL, updated_at REAL NOT NULL)")
+        c.execute("SELECT setting_value FROM system_settings WHERE setting_key = 'firewall_passcode'")
+        row = c.fetchone()
+        conn.close()
+        return row[0] if row else default_pass
+    except Exception:
+        return default_pass
+
+def db_set_firewall_passcode(new_passcode: str) -> bool:
+    """Updates master firewall passcode in SQLite system_settings."""
+    import time
+    try:
+        conn = get_db_connection()
+        c = conn.cursor()
+        c.execute("CREATE TABLE IF NOT EXISTS system_settings (setting_key TEXT PRIMARY KEY, setting_value TEXT NOT NULL, updated_at REAL NOT NULL)")
+        c.execute("""
+        INSERT INTO system_settings (setting_key, setting_value, updated_at)
+        VALUES ('firewall_passcode', ?, ?)
+        ON CONFLICT(setting_key) DO UPDATE SET setting_value = excluded.setting_value, updated_at = excluded.updated_at
+        """, (new_passcode.strip(), time.time()))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"[DB FIREWALL PASSCODE UPDATE NOTICE] {e}")
+        return False
 
 def save_scanned_website(scan_data: dict) -> int:
     conn = get_db_connection()

@@ -45,6 +45,16 @@ class RegisterVerifyRequest(BaseModel):
     email: str
     otp: str
 
+class FirewallVerifyRequest(BaseModel):
+    passcode: str = Field(..., description="Master firewall passcode")
+
+class FirewallForgotRequest(BaseModel):
+    origin: Optional[str] = Field(None, description="Client origin for email reset link")
+
+class FirewallResetRequest(BaseModel):
+    token_or_otp: str = Field(..., description="Passcode reset token or verification OTP")
+    new_passcode: str = Field(..., description="New master firewall passcode")
+
 # ==============================================================================
 # ASSET MANAGEMENT SCHEMAS
 # ==============================================================================

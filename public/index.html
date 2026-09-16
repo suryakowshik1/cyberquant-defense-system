@@ -812,7 +812,7 @@
     </div>
   </div>
 
-  <!-- SECRET FIREWALL ADMIN ACCESS MODAL (Passcode: *121#) -->
+  <!-- SECRET FIREWALL ADMIN ACCESS MODAL -->
   <div id="firewall-auth-modal" class="fixed inset-0 z-50 bg-black/90 backdrop-blur-md hidden items-start sm:items-center justify-center p-3 sm:p-4 overflow-y-auto">
     <div class="bg-[#0b0f19] border border-emerald-500/50 rounded-2xl max-w-md w-full p-4 sm:p-6 text-gray-200 shadow-[0_0_50px_rgba(16,185,129,0.3)] space-y-4 relative my-auto">
       
@@ -851,7 +851,7 @@
             <input 
               type="password" 
               id="firewall-secret-pass" 
-              placeholder="Enter passcode (*121#)" 
+              placeholder="Enter Master Passcode" 
               autocomplete="off" 
               class="w-full pl-10 pr-10 py-3 bg-gray-950/90 border border-emerald-500/40 rounded-xl text-center font-mono text-base tracking-widest text-emerald-300 focus:outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-500/30 transition-all shadow-inner"
               onkeydown="if(event.key==='Enter') verifyFirewallPasscode(event)"
@@ -888,6 +888,140 @@
           >
             <i data-lucide="unlock" class="w-4 h-4 text-emerald-200"></i>
             <span>UNLOCK FIREWALL</span>
+          </button>
+        </div>
+
+        <!-- Forgot / Change Passcode Link -->
+        <div class="text-center pt-2 border-t border-gray-800/80">
+          <button 
+            type="button" 
+            onclick="openFirewallResetModal()" 
+            class="text-[11px] font-mono text-cyan-400 hover:text-cyan-300 transition-colors inline-flex items-center gap-1.5 cursor-pointer underline decoration-cyan-500/40 hover:decoration-cyan-300"
+          >
+            <i data-lucide="mail" class="w-3.5 h-3.5"></i>
+            <span>Forgot or Change Master Passcode</span>
+          </button>
+        </div>
+      </form>
+
+    </div>
+  </div>
+
+  <!-- MASTER FIREWALL PASSCODE RESET & RECOVERY MODAL -->
+  <div id="firewall-reset-modal" class="fixed inset-0 z-50 bg-black/90 backdrop-blur-md hidden items-start sm:items-center justify-center p-3 sm:p-4 overflow-y-auto">
+    <div class="bg-[#0b0f19] border border-cyan-500/50 rounded-2xl max-w-md w-full p-4 sm:p-6 text-gray-200 shadow-[0_0_50px_rgba(6,182,212,0.3)] space-y-4 relative my-auto">
+      
+      <!-- Close button -->
+      <button onclick="closeFirewallResetModal()" class="absolute top-4 right-4 text-gray-400 hover:text-white transition-colors cursor-pointer">
+        <i data-lucide="x" class="w-5 h-5"></i>
+      </button>
+
+      <!-- Modal Header -->
+      <div class="text-center space-y-2">
+        <div class="inline-flex p-3 bg-gradient-to-br from-cyan-950 to-blue-950 border border-cyan-500/50 rounded-2xl text-cyan-400 shadow-[0_0_20px_rgba(6,182,212,0.4)]">
+          <i data-lucide="shield-check" class="w-8 h-8 text-cyan-300"></i>
+        </div>
+        <h3 class="text-base sm:text-lg font-black tracking-wider text-white font-mono">
+          MASTER PASSCODE RESET
+        </h3>
+        <p class="text-xs text-cyan-400 font-mono">
+          Perimeter Security Clearance Recovery
+        </p>
+        <p class="text-[11px] text-gray-400">
+          Reset authorizations are strictly dispatched to the verified administrator email (<span class="text-cyan-300 font-mono">cyberquant26@gmail.com</span>).
+        </p>
+      </div>
+
+      <!-- Step 1: Send Reset Link Card -->
+      <div class="p-3.5 bg-cyan-950/30 border border-cyan-500/30 rounded-xl space-y-2.5">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-bold text-cyan-300 font-mono flex items-center gap-1.5">
+            <i data-lucide="send" class="w-3.5 h-3.5"></i> Step 1: Dispatch Reset Link
+          </span>
+          <span class="text-[10px] text-gray-400 font-mono">Encrypted SMTP</span>
+        </div>
+        <p class="text-[11px] text-gray-300 leading-relaxed">
+          Click below to receive a secure one-click reset link and 6-digit verification code at <strong class="text-white font-mono">cyberquant26@gmail.com</strong>.
+        </p>
+        <button 
+          type="button" 
+          id="btn-firewall-send-reset" 
+          onclick="handleSendFirewallResetLink()" 
+          class="w-full py-2 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-mono text-xs font-bold rounded-lg shadow-[0_0_15px_rgba(6,182,212,0.4)] active:scale-95 transition-all flex items-center justify-center gap-1.5 cursor-pointer border border-cyan-400/50"
+        >
+          <i data-lucide="mail" class="w-3.5 h-3.5"></i>
+          <span>SEND RESET LINK TO EMAIL</span>
+        </button>
+        <div id="firewall-send-status" class="hidden p-2 rounded-lg text-xs font-mono text-center"></div>
+      </div>
+
+      <!-- Step 2: Enter Token / OTP & Set New Passcode -->
+      <form onsubmit="handleResetFirewallPasscode(event); return false;" class="space-y-3 pt-1">
+        <div class="flex items-center justify-between border-b border-gray-800 pb-1">
+          <span class="text-xs font-bold text-emerald-300 font-mono flex items-center gap-1.5">
+            <i data-lucide="key" class="w-3.5 h-3.5"></i> Step 2: Set New Passcode
+          </span>
+          <span class="text-[10px] text-gray-400 font-mono">Token / OTP Auth</span>
+        </div>
+
+        <div>
+          <label class="block text-xs font-mono text-gray-300 mb-1">
+            Reset Token or 6-Digit Code
+          </label>
+          <input 
+            type="text" 
+            id="firewall-reset-token-input" 
+            placeholder="Paste reset token or enter 6-digit code" 
+            autocomplete="off" 
+            class="w-full px-3 py-2 bg-gray-950/90 border border-gray-700 rounded-lg text-sm font-mono text-cyan-300 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-500 transition-all"
+          >
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <div>
+            <label class="block text-xs font-mono text-gray-300 mb-1">
+              New Master Passcode
+            </label>
+            <input 
+              type="password" 
+              id="firewall-new-pass-input" 
+              placeholder="e.g. *999#" 
+              autocomplete="off" 
+              class="w-full px-3 py-2 bg-gray-950/90 border border-gray-700 rounded-lg text-sm font-mono text-white focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-500 transition-all"
+            >
+          </div>
+          <div>
+            <label class="block text-xs font-mono text-gray-300 mb-1">
+              Confirm Passcode
+            </label>
+            <input 
+              type="password" 
+              id="firewall-confirm-pass-input" 
+              placeholder="Confirm passcode" 
+              autocomplete="off" 
+              class="w-full px-3 py-2 bg-gray-950/90 border border-gray-700 rounded-lg text-sm font-mono text-white focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-500 transition-all"
+            >
+          </div>
+        </div>
+
+        <div id="firewall-reset-error" class="hidden p-2 rounded-lg bg-red-950/70 border border-red-500/50 text-red-300 text-xs font-mono text-center"></div>
+        <div id="firewall-reset-success" class="hidden p-2 rounded-lg bg-emerald-950/70 border border-emerald-500/50 text-emerald-300 text-xs font-mono text-center"></div>
+
+        <div class="flex items-center gap-2 pt-1">
+          <button 
+            type="button" 
+            onclick="closeFirewallResetModal()" 
+            class="flex-1 py-2.5 bg-gray-900 hover:bg-gray-800 text-gray-300 font-mono text-xs rounded-xl border border-gray-700 transition-all cursor-pointer"
+          >
+            Cancel
+          </button>
+          <button 
+            type="submit" 
+            id="btn-firewall-reset-submit" 
+            class="flex-1 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-mono text-xs font-bold rounded-xl shadow-[0_0_18px_rgba(16,185,129,0.4)] active:scale-95 transition-all flex items-center justify-center gap-1.5 cursor-pointer border border-emerald-400/50"
+          >
+            <i data-lucide="check-circle" class="w-4 h-4 text-emerald-200"></i>
+            <span>UPDATE PASSCODE</span>
           </button>
         </div>
       </form>
@@ -942,7 +1076,7 @@
           <i data-lucide="radar" class="w-3.5 h-3.5 text-cyan-200 animate-spin" style="animation-duration: 4s;"></i>
           <span>SCAN</span>
         </button>
-        <!-- FIREWALL Button in Header (Hidden by default until admin passcode *121# is entered) -->
+        <!-- FIREWALL Button in Header (Hidden by default until master admin unlocks) -->
         <button id="header-btn-firewall" onclick="deployFirewallOnCurrentBranch()" class="hidden px-2.5 py-1 bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:opacity-90 text-white font-mono text-xs font-bold rounded-md flex items-center gap-1 shadow-[0_0_12px_rgba(16,185,129,0.5)] active:scale-95 transition-all border border-emerald-400/50 cursor-pointer" title="Deploy Next-Gen Cloud Firewall on Current Branch">
           <i data-lucide="shield-check" class="w-3.5 h-3.5 text-emerald-200"></i>
           <span>FIREWALL</span>
@@ -1176,7 +1310,7 @@
               <span class="text-[10px] bg-black/40 px-1.5 py-0.5 rounded text-cyan-300 font-semibold hidden xs:inline">AUDIT</span>
             </button>
 
-            <!-- FIREWALL Button in Command Bar (Hidden by default until admin unlocks via *121#) -->
+            <!-- FIREWALL Button in Command Bar (Hidden by default until master admin unlocks) -->
             <button id="btn-cmd-firewall" onclick="deployFirewallOnCurrentBranch()" class="hidden flex-1 sm:flex-none px-3 sm:px-4 py-1.5 bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white font-bold text-xs rounded-lg font-mono flex items-center justify-center gap-1.5 shadow-[0_0_18px_rgba(16,185,129,0.5)] active:scale-95 transition-all border border-emerald-400/60" title="Deploy Next-Gen Cloud Firewall Shield on Selected Branch">
               <i data-lucide="shield-check" class="w-3.5 h-3.5 text-emerald-200"></i>
               <span class="tracking-wider text-white">FIREWALL</span>
@@ -1422,7 +1556,7 @@
       </div>
     </div>
 
-    <!-- NEXT-GENERATION CYBER FIREWALL & PERIMETER DEFENSE COMMAND (NGFW / WAF / ZERO-TRUST) - HIDDEN BY DEFAULT (Triple-click CyberQuant AI + Passcode *121# to unlock) -->
+    <!-- NEXT-GENERATION CYBER FIREWALL & PERIMETER DEFENSE COMMAND (NGFW / WAF / ZERO-TRUST) - HIDDEN BY DEFAULT (Triple-click CyberQuant AI + Master Passcode to unlock) -->
     <div id="firewall-command-section" class="hidden cyber-gradient rounded-xl border border-emerald-500/40 p-5 relative overflow-hidden shadow-2xl transition-all duration-300">
       
       <!-- Ambient Glow Behind Section -->
@@ -3994,7 +4128,7 @@
     }
 
     // =========================================================================
-    // SECRET FIREWALL MASTER AUTHENTICATION (Triple-Click + Passcode *121#)
+    // SECRET FIREWALL MASTER AUTHENTICATION (Triple-Click + Master Passcode)
     // =========================================================================
     let brandClickCount = 0;
     let brandClickTimer = null;
@@ -4087,26 +4221,249 @@
       try { lucide.createIcons(); } catch(e){}
     }
 
-    function verifyFirewallPasscode(e) {
+    async function verifyFirewallPasscode(e) {
       if (e && e.preventDefault) e.preventDefault();
       const input = (document.getElementById('firewall-secret-pass')?.value || '').trim();
       const errBox = document.getElementById('firewall-auth-error');
+      const submitBtn = document.getElementById('btn-firewall-auth-submit');
 
-      // The secret passcode requested by user: *121#
-      if (input === '*121#') {
-        closeFirewallAuthModal();
-        unlockAndDisplayFirewall();
-      } else {
+      if (!input) {
+        if (errBox) {
+          errBox.classList.remove('hidden');
+          errBox.innerText = "Please enter the master passcode.";
+        }
+        return;
+      }
+
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = `<span class="animate-spin inline-block mr-1">↻</span> VERIFYING...`;
+      }
+
+      try {
+        const resp = await fetch('/api/firewall/verify-passcode', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ passcode: input })
+        });
+
+        if (resp.ok) {
+          closeFirewallAuthModal();
+          unlockAndDisplayFirewall();
+          return;
+        }
+
+        let msg = "ACCESS DENIED: Invalid Passcode. Master Authorization Failed.";
+        try {
+          const data = await resp.json();
+          if (data && data.detail) msg = data.detail;
+        } catch(e) {}
+
+        if (errBox) {
+          errBox.classList.remove('hidden');
+          errBox.innerText = msg;
+          errBox.classList.add('animate-shake');
+          setTimeout(() => errBox.classList.remove('animate-shake'), 600);
+        }
+      } catch (err) {
+        // Fallback for offline / network issues
+        const cachedPass = localStorage.getItem('cyber_firewall_passcode') || '*121#';
+        if (input === cachedPass) {
+          closeFirewallAuthModal();
+          unlockAndDisplayFirewall();
+          return;
+        }
         if (errBox) {
           errBox.classList.remove('hidden');
           errBox.innerText = "ACCESS DENIED: Invalid Passcode. Master Authorization Failed.";
           errBox.classList.add('animate-shake');
           setTimeout(() => errBox.classList.remove('animate-shake'), 600);
         }
-        const passInput = document.getElementById('firewall-secret-pass');
-        if (passInput) {
-          passInput.value = '';
-          passInput.focus();
+      } finally {
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.innerHTML = `<i data-lucide="unlock" class="w-4 h-4 text-emerald-200"></i><span>UNLOCK FIREWALL</span>`;
+          try { lucide.createIcons(); } catch(e){}
+        }
+      }
+
+      const passInput = document.getElementById('firewall-secret-pass');
+      if (passInput) {
+        passInput.value = '';
+        passInput.focus();
+      }
+    }
+
+    // Reset Modal Handlers
+    function openFirewallResetModal(prefillToken = '') {
+      closeFirewallAuthModal();
+      const modal = document.getElementById('firewall-reset-modal');
+      if (!modal) return;
+
+      const sendStatus = document.getElementById('firewall-send-status');
+      if (sendStatus) {
+        sendStatus.classList.add('hidden');
+        sendStatus.innerText = '';
+      }
+      const resetErr = document.getElementById('firewall-reset-error');
+      if (resetErr) {
+        resetErr.classList.add('hidden');
+        resetErr.innerText = '';
+      }
+      const resetSuccess = document.getElementById('firewall-reset-success');
+      if (resetSuccess) {
+        resetSuccess.classList.add('hidden');
+        resetSuccess.innerText = '';
+      }
+
+      const tokenInput = document.getElementById('firewall-reset-token-input');
+      const newPassInput = document.getElementById('firewall-new-pass-input');
+      const confirmPassInput = document.getElementById('firewall-confirm-pass-input');
+
+      if (tokenInput) {
+        tokenInput.value = prefillToken || '';
+      }
+      if (newPassInput) newPassInput.value = '';
+      if (confirmPassInput) confirmPassInput.value = '';
+
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+      setTimeout(() => {
+        if (prefillToken && newPassInput) {
+          newPassInput.focus();
+        } else if (tokenInput) {
+          tokenInput.focus();
+        }
+      }, 120);
+      try { lucide.createIcons(); } catch(e){}
+    }
+
+    function closeFirewallResetModal() {
+      const modal = document.getElementById('firewall-reset-modal');
+      if (!modal) return;
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
+    }
+
+    async function handleSendFirewallResetLink() {
+      const btn = document.getElementById('btn-firewall-send-reset');
+      const statusBox = document.getElementById('firewall-send-status');
+
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<span class="animate-spin inline-block mr-1">↻</span> DISPATCHING LINK...`;
+      }
+      if (statusBox) {
+        statusBox.className = "p-2.5 rounded-lg text-xs font-mono text-center bg-cyan-950/60 border border-cyan-500/40 text-cyan-200 block";
+        statusBox.innerText = "Connecting to secure SMTP service & dispatching reset credentials...";
+      }
+
+      try {
+        const origin = window.location.origin || '';
+        const resp = await fetch('/api/firewall/forgot-passcode', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ origin: origin })
+        });
+        const data = await resp.json();
+
+        if (resp.ok && data.success) {
+          if (statusBox) {
+            statusBox.className = "p-2.5 rounded-lg text-xs font-mono text-center bg-emerald-950/80 border border-emerald-500/60 text-emerald-200 block";
+            statusBox.innerHTML = `✓ Link & Code dispatched to <strong>cyberquant26@gmail.com</strong>! Check your inbox.`;
+          }
+        } else {
+          throw new Error(data.detail || data.message || "Failed to dispatch email");
+        }
+      } catch (err) {
+        if (statusBox) {
+          statusBox.className = "p-2.5 rounded-lg text-xs font-mono text-center bg-red-950/80 border border-red-500/60 text-red-300 block";
+          statusBox.innerText = `Error: ${err.message || 'Unable to dispatch reset email. Please try again.'}`;
+        }
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = `<i data-lucide="mail" class="w-3.5 h-3.5"></i><span>RESEND RESET LINK</span>`;
+          try { lucide.createIcons(); } catch(e){}
+        }
+      }
+    }
+
+    async function handleResetFirewallPasscode(e) {
+      if (e && e.preventDefault) e.preventDefault();
+      const token = (document.getElementById('firewall-reset-token-input')?.value || '').trim();
+      const newPass = (document.getElementById('firewall-new-pass-input')?.value || '').trim();
+      const confirmPass = (document.getElementById('firewall-confirm-pass-input')?.value || '').trim();
+      const errBox = document.getElementById('firewall-reset-error');
+      const successBox = document.getElementById('firewall-reset-success');
+      const submitBtn = document.getElementById('btn-firewall-reset-submit');
+
+      if (errBox) errBox.classList.add('hidden');
+      if (successBox) successBox.classList.add('hidden');
+
+      if (!token) {
+        if (errBox) {
+          errBox.innerText = "Please enter the reset token or 6-digit code from your email.";
+          errBox.classList.remove('hidden');
+        }
+        return;
+      }
+      if (!newPass || newPass.length < 4) {
+        if (errBox) {
+          errBox.innerText = "New passcode must be at least 4 characters long.";
+          errBox.classList.remove('hidden');
+        }
+        return;
+      }
+      if (newPass !== confirmPass) {
+        if (errBox) {
+          errBox.innerText = "Passcodes do not match. Please re-enter.";
+          errBox.classList.remove('hidden');
+        }
+        return;
+      }
+
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = `<span class="animate-spin inline-block mr-1">↻</span> UPDATING...`;
+      }
+
+      try {
+        const resp = await fetch('/api/firewall/reset-passcode', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token_or_otp: token, new_passcode: newPass })
+        });
+        const data = await resp.json();
+
+        if (resp.ok && data.success) {
+          localStorage.setItem('cyber_firewall_passcode', newPass);
+          if (successBox) {
+            successBox.innerText = data.message || "Passcode successfully updated!";
+            successBox.classList.remove('hidden');
+          }
+          setTimeout(() => {
+            closeFirewallResetModal();
+            openFirewallAuthModal();
+            const passInput = document.getElementById('firewall-secret-pass');
+            if (passInput) {
+              passInput.value = newPass;
+              passInput.focus();
+            }
+          }, 1500);
+        } else {
+          throw new Error(data.detail || data.message || "Invalid or expired token/code");
+        }
+      } catch (err) {
+        if (errBox) {
+          errBox.innerText = `Error: ${err.message || 'Verification failed.'}`;
+          errBox.classList.remove('hidden');
+        }
+      } finally {
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.innerHTML = `<i data-lucide="check-circle" class="w-4 h-4 text-emerald-200"></i><span>UPDATE PASSCODE</span>`;
+          try { lucide.createIcons(); } catch(e){}
         }
       }
     }
@@ -4136,14 +4493,14 @@
       const btnHud = document.getElementById('hud-btn-mitigate');
       if (btnHud) btnHud.classList.remove('hidden');
 
-      // 3. Update Badge
+      // 3. Update Badge (Passcode is completely hidden)
       const fwBadge = document.getElementById('fw-badge-mode');
       if (fwBadge) {
-        fwBadge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span> MASTER UNLOCKED (*121#)`;
+        fwBadge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span> MASTER UNLOCKED`;
       }
 
       if (typeof appendFirewallLog === 'function') {
-        appendFirewallLog('AUTH', '127.0.0.1', 'SECURITY_CONSOLE', 'CLASSIFIED ACCESS GRANTED: Next-Gen Cloud Firewall unlocked via master code (*121#).');
+        appendFirewallLog('AUTH', '127.0.0.1', 'SECURITY_CONSOLE', 'CLASSIFIED ACCESS GRANTED: Next-Gen Cloud Firewall unlocked via master authorization.');
       }
       try { lucide.createIcons(); } catch(e){}
     }
@@ -5382,6 +5739,17 @@ async def add_security_headers(request: Request, call_next):
 
       const errBox = document.getElementById('gate-error-box');
       if (errBox) errBox.classList.add('hidden');
+
+      // Check for Firewall Master Passcode Reset Token in URL
+      try {
+        const urlParams = new URLSearchParams(window.location.search);
+        const fwResetToken = urlParams.get('firewall_reset_token');
+        if (fwResetToken) {
+          setTimeout(() => {
+            openFirewallResetModal(fwResetToken);
+          }, 400);
+        }
+      } catch (e) {}
     });
 
 
@@ -11914,7 +12282,7 @@ async def add_security_headers(request: Request, call_next):
     }
 
     function deployFirewallOnCurrentBranch() {
-      // Security Guard: Require admin passcode *121#
+      // Security Guard: Require master admin passcode
       if (!sessionStorage.getItem('cyber_firewall_unlocked')) {
         openFirewallAuthModal();
         return;

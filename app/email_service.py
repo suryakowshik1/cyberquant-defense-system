@@ -6,6 +6,7 @@ Authorized Administrators: pavansaikumar5616@gmail.com, suryakowshik8@gmail.com
 import os
 import time
 import random
+import hashlib
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -213,3 +214,200 @@ def dispatch_otp_email(recipient_email: str, otp_code: str) -> dict:
     except Exception as e:
         print(f"[SMTP WARNING] Failed to deliver live email via SMTP: {e}")
         return {"sent": False, "mode": "simulated", "error": str(e)}
+
+
+# Fast runtime cache for active firewall passcode resets
+ACTIVE_FIREWALL_RESETS = {}
+
+def dispatch_firewall_reset_email(recipient_email: str, reset_link: str, otp_code: str) -> dict:
+    """
+    Dispatches a dedicated HTML email with a direct one-click reset link and verification code
+    for changing the Master Firewall Passcode.
+    """
+    smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com") or "smtp.gmail.com"
+    smtp_port = int(os.getenv("SMTP_PORT", "587") or "587")
+    smtp_user = os.getenv("SMTP_USER", "cyberquant26@gmail.com").strip() or "cyberquant26@gmail.com"
+    smtp_pass = (os.getenv("SMTP_PASS") or "zffzpemfpvfxdvdg").replace(" ", "").strip()
+    smtp_from = os.getenv("SMTP_FROM", "CyberQuant SOC Defense <cyberquant26@gmail.com>").strip() or "cyberquant26@gmail.com"
+
+    if not smtp_user or not smtp_pass:
+        return {"sent": False, "mode": "simulated", "note": "SMTP credentials not configured."}
+
+    try:
+        subject = "🛡️ CyberQuant AI - Master Firewall Passcode Reset Link"
+        html_body = f"""
+        <html>
+        <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background-color: #0b0f19; color: #f3f4f6; padding: 25px;">
+            <div style="background-color: #111827; border: 1px solid #10b981; border-radius: 14px; padding: 28px; max-width: 520px; margin: 0 auto; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+                <div style="text-align: center; margin-bottom: 20px;">
+                    <div style="display: inline-block; padding: 12px; background: rgba(16, 185, 129, 0.15); border: 1px solid #10b981; border-radius: 12px;">
+                        <span style="font-size: 28px;">🛡️</span>
+                    </div>
+                    <h2 style="color: #10b981; margin: 12px 0 4px 0; font-size: 20px; letter-spacing: 1px;">CYBERQUANT AI DEFENSE</h2>
+                    <div style="font-size: 11px; color: #9ca3af; text-transform: uppercase; letter-spacing: 1.5px;">Master Firewall Clearance Console</div>
+                </div>
+
+                <p style="font-size: 14px; color: #d1d5db; line-height: 1.6; margin-bottom: 20px;">
+                    A request was received to <strong>change or reset the Master Firewall Passcode</strong> for your perimeter defense console.
+                </p>
+
+                <!-- One-Click Direct Reset Button -->
+                <div style="text-align: center; margin: 26px 0;">
+                    <a href="{reset_link}" target="_blank" style="background: linear-gradient(135deg, #10b981, #06b6d4); color: #ffffff; text-decoration: none; padding: 14px 28px; border-radius: 10px; font-weight: bold; font-size: 14px; letter-spacing: 0.8px; display: inline-block; box-shadow: 0 4px 20px rgba(16, 185, 129, 0.4);">
+                        🔑 Click Here to Reset Master Passcode
+                    </a>
+                </div>
+
+                <div style="text-align: center; margin: 16px 0; font-size: 12px; color: #9ca3af;">
+                    — OR USE THIS 6-DIGIT AUTHORIZATION CODE —
+                </div>
+
+                <div style="background-color: #0b0f19; border: 1px dashed #10b981; border-radius: 8px; padding: 14px; text-align: center; margin: 12px 0;">
+                    <div style="font-size: 30px; font-weight: bold; color: #10b981; letter-spacing: 6px; font-family: monospace;">{otp_code}</div>
+                </div>
+
+                <p style="font-size: 12px; color: #9ca3af; line-height: 1.5; margin-top: 22px;">
+                    ⏳ <strong>Expiry:</strong> This reset link and verification code are strictly valid for <strong>15 minutes</strong>.<br>
+                    ⚠️ <strong>Security Notice:</strong> If you did not request this master passcode reset, someone may be attempting to access your perimeter firewall controls. Review active SOC sessions immediately.
+                </p>
+
+                <div style="border-top: 1px solid #1f2937; margin-top: 22px; padding-top: 12px; font-size: 11px; color: #6b7280; text-align: center;">
+                    CyberQuant Autonomous SOC & Continuous Perimeter Defense
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = subject
+        msg["From"] = smtp_from
+        msg["To"] = recipient_email
+        msg.attach(MIMEText(html_body, "html"))
+
+        try:
+            with smtplib.SMTP(smtp_host, smtp_port, timeout=8) as server:
+                server.starttls()
+                server.login(smtp_user, smtp_pass)
+                server.sendmail(smtp_from, recipient_email, msg.as_string())
+            return {"sent": True, "mode": "smtp_tls"}
+        except Exception as err_tls:
+            print(f"[SMTP TLS NOTICE] Port {smtp_port} failed ({err_tls}), attempting SSL port 465...")
+            with smtplib.SMTP_SSL(smtp_host, 465, timeout=8) as server_ssl:
+                server_ssl.login(smtp_user, smtp_pass)
+                server_ssl.sendmail(smtp_from, recipient_email, msg.as_string())
+            return {"sent": True, "mode": "smtp_ssl"}
+    except Exception as e:
+        print(f"[SMTP FIREWALL RESET WARNING] {e}")
+        return {"sent": False, "mode": "simulated", "error": str(e)}
+
+
+def generate_firewall_reset(origin: str = "") -> dict:
+    """
+    Generates a secure reset token and OTP code, stores them, and dispatches an email
+    to cyberquant26@gmail.com with the reset link.
+    """
+    recipient_email = "cyberquant26@gmail.com"
+    token = hashlib.sha256(f"fw_{time.time()}_{random.random()}_{recipient_email}".encode()).hexdigest()[:32]
+    otp_code = f"{random.randint(100000, 999999)}"
+    now = time.time()
+    expires_at = now + 900.0  # 15 minutes
+
+    rec = {
+        "token": token,
+        "otp": otp_code,
+        "email": recipient_email,
+        "expires_at": expires_at,
+        "used": False
+    }
+    ACTIVE_FIREWALL_RESETS[token] = rec
+    ACTIVE_FIREWALL_RESETS[otp_code] = rec
+
+    # Persist in SQLite
+    try:
+        conn = get_db_connection()
+        c = conn.cursor()
+        c.execute("""
+        INSERT INTO password_resets (email, otp_code, expires_at, used, created_at)
+        VALUES (?, ?, ?, 0, ?)
+        """, (f"firewall_reset_{token}", otp_code, expires_at, now))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[DB FIREWALL RESET NOTICE] {e}")
+
+    # Build reset link
+    base_url = (origin or "").rstrip("/")
+    if not base_url or not base_url.startswith("http"):
+        base_url = os.getenv("APP_URL", "https://cyberquant-defense-system.vercel.app").rstrip("/")
+    reset_link = f"{base_url}/?firewall_reset_token={token}"
+
+    dispatch_res = dispatch_firewall_reset_email(recipient_email, reset_link, otp_code)
+    email_sent = dispatch_res.get("sent", False)
+
+    print(f"\n===========================================================")
+    print(f" [FIREWALL RESET DISPATCH] Recipient: {recipient_email}")
+    print(f" [RESET LINK]             >>> {reset_link} <<<")
+    print(f" [VERIFICATION OTP CODE]  >>> {otp_code} <<<")
+    print(f" [EMAIL SENT VIA SMTP]    {email_sent}")
+    print(f"===========================================================\n")
+
+    return {
+        "success": True,
+        "message": "A master passcode reset link and verification code have been dispatched to your administrator email.",
+        "email_sent": email_sent,
+        "expires_in_seconds": 900
+    }
+
+def verify_firewall_reset(token_or_otp: str) -> dict:
+    """Verifies whether the reset token or OTP code is valid and unexpired."""
+    clean = (token_or_otp or "").strip()
+    if not clean:
+        return {"valid": False, "message": "Authorization code or reset token is required."}
+
+    now = time.time()
+    if clean in ACTIVE_FIREWALL_RESETS:
+        rec = ACTIVE_FIREWALL_RESETS[clean]
+        if rec.get("used"):
+            return {"valid": False, "message": "This reset authorization has already been used."}
+        if now > rec.get("expires_at", 0):
+            return {"valid": False, "message": "Reset authorization has expired. Please request a new link."}
+        return {"valid": True, "message": "Token verified successfully."}
+
+    try:
+        conn = get_db_connection()
+        c = conn.cursor()
+        c.execute("""
+        SELECT id, expires_at, used FROM password_resets
+        WHERE (otp_code = ? OR email = ?)
+        ORDER BY id DESC LIMIT 1
+        """, (clean, f"firewall_reset_{clean}"))
+        row = c.fetchone()
+        conn.close()
+        if row:
+            if row[2] == 1:
+                return {"valid": False, "message": "This reset authorization has already been used."}
+            if now > row[1]:
+                return {"valid": False, "message": "Reset authorization has expired. Please request a new link."}
+            return {"valid": True, "message": "Token verified successfully."}
+    except Exception as e:
+        print(f"[DB VERIFY RESET ERROR] {e}")
+
+    return {"valid": False, "message": "Invalid authorization code or reset token."}
+
+def consume_firewall_reset(token_or_otp: str):
+    """Marks the firewall reset token or OTP as used."""
+    clean = (token_or_otp or "").strip()
+    if clean in ACTIVE_FIREWALL_RESETS:
+        ACTIVE_FIREWALL_RESETS[clean]["used"] = True
+    try:
+        conn = get_db_connection()
+        c = conn.cursor()
+        c.execute("""
+        UPDATE password_resets SET used = 1 
+        WHERE (otp_code = ? OR email = ?)
+        """, (clean, f"firewall_reset_{clean}"))
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
