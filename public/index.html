@@ -575,6 +575,13 @@
             <span class="text-gray-200">suryakowshik8@gmail.com</span>
             <span class="text-[10px] text-amber-400 ml-auto font-bold">(Secondary Admin)</span>
           </label>
+          <div class="pt-1 border-t border-gray-800">
+            <label class="flex items-center space-x-2.5 p-2 rounded hover:bg-gray-800/60 cursor-pointer">
+              <input type="radio" name="recovery-radio" id="recovery-radio-custom" value="custom" class="text-cyan-500 focus:ring-0">
+              <span class="text-gray-300">Other / Custom Email Address:</span>
+            </label>
+            <input type="email" id="recovery-custom-email" onfocus="document.getElementById('recovery-radio-custom').checked=true" placeholder="Enter your email" class="w-full mt-1 px-3 py-2 bg-gray-950 border border-gray-700 rounded-lg text-xs font-mono text-gray-200 focus:outline-none focus:border-cyan-400">
+          </div>
         </div>
 
         <div id="recovery-email-msg" class="hidden text-xs font-mono p-2.5 rounded bg-cyan-950/50 border border-cyan-500/40 text-cyan-300"></div>
@@ -590,31 +597,41 @@
         </div>
       </div>
 
-      <!-- STATE 2: Enter OTP & Verify Code ONLY (No password fields shown here!) -->
+      <!-- STATE 2: Enter OTP & Verify Code ONLY -->
       <div id="recovery-state-otp" class="hidden space-y-4">
         <div class="text-center space-y-1">
           <div class="inline-flex p-2.5 bg-cyan-950/80 border border-cyan-500/40 rounded-xl text-cyan-300 shadow">
             <i data-lucide="shield-alert" class="w-6 h-6"></i>
           </div>
           <h3 class="text-base font-extrabold text-white font-mono">ENTER VERIFICATION OTP</h3>
-          <p class="text-xs text-gray-400">Enter code dispatched to <strong id="recovery-email-target" class="text-cyan-300">...</strong></p>
+          <p class="text-xs text-gray-400">Code generated for <strong id="recovery-email-target" class="text-cyan-300">...</strong></p>
         </div>
 
-        <!-- Notification Banner -->
-        <div id="recovery-otp-notice" class="p-3 rounded-xl bg-cyan-950/40 border border-cyan-500/30 text-xs font-mono text-cyan-300 space-y-1">
-          <div class="flex items-center gap-1.5 font-bold">
-            <i data-lucide="mail-check" class="w-4 h-4 text-cyan-400"></i>
-            <span>OTP Verification Code</span>
+        <!-- Generated OTP High-Tech Card Preview & Auto-Fill -->
+        <div class="p-3 bg-gradient-to-r from-cyan-950/80 via-gray-900 to-cyan-950/80 border border-cyan-500/50 rounded-xl space-y-2 shadow-lg">
+          <div class="flex items-center justify-between">
+            <span class="text-[11px] font-mono font-bold text-cyan-300 flex items-center gap-1.5">
+              <i data-lucide="key" class="w-3.5 h-3.5 text-emerald-400"></i>
+              <span>GENERATED SECURITY CODE:</span>
+            </span>
+            <span class="text-[10px] bg-cyan-900/60 text-cyan-300 border border-cyan-500/30 px-2 py-0.5 rounded font-mono font-bold">10 MIN EXPIRY</span>
+          </div>
+          <div class="flex items-center justify-between bg-black/80 p-2.5 rounded-lg border border-cyan-500/30">
+            <span id="gate-otp-code-preview" class="text-2xl font-bold tracking-[8px] text-emerald-400 font-mono pl-2">------</span>
+            <button type="button" onclick="autoFillRecoveryOTP()" class="px-3 py-1.5 bg-gradient-to-r from-cyan-600 to-teal-600 hover:opacity-90 text-white rounded-lg text-xs font-mono font-bold transition-all shadow-[0_0_10px_rgba(6,182,212,0.4)] cursor-pointer flex items-center gap-1 active:scale-95">
+              <i data-lucide="zap" class="w-3.5 h-3.5 text-yellow-300"></i>
+              <span>Auto-Fill Code</span>
+            </button>
           </div>
           <p id="recovery-otp-delivery-msg" class="text-[11px] text-gray-300 font-sans">
-            A 6-digit verification code has been generated. Please enter it below to verify your identity.
+            Use this 6-digit code to verify identity and reset your administrative password.
           </p>
         </div>
 
-        <!-- 6-digit OTP Input (Blank & Clean for user to type) -->
+        <!-- 6-digit OTP Input -->
         <div>
-          <label class="block text-xs font-mono text-gray-300 mb-1.5 text-center">6-Digit Verification Code</label>
-          <input type="text" id="gate-otp-input" maxlength="6" placeholder="000000" autocomplete="off" class="w-full text-center text-2xl font-mono tracking-[8px] font-black py-2.5 bg-gray-900 border border-cyan-500/50 rounded-xl text-cyan-300 focus:outline-none focus:border-cyan-400">
+          <label class="block text-xs font-mono text-gray-300 mb-1.5 text-center">Type 6-Digit Code Below</label>
+          <input type="text" id="gate-otp-input" maxlength="6" placeholder="000000" autocomplete="off" class="w-full text-center text-2xl font-mono tracking-[8px] font-black py-2.5 bg-gray-900 border border-cyan-500/50 rounded-xl text-cyan-300 focus:outline-none focus:border-cyan-400" onkeydown="if(event.key==='Enter') handleVerifyOTPCode()">
         </div>
 
         <!-- Status Message -->
@@ -625,7 +642,7 @@
           <button onclick="backToEmailSelect()" class="py-2.5 px-4 bg-gray-800 hover:bg-gray-700 text-gray-300 font-mono text-xs rounded-xl transition-all cursor-pointer">
             ← Back
           </button>
-          <button onclick="handleVerifyOTPCode()" id="btn-verify-otp" class="flex-1 py-2.5 bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:opacity-95 text-white font-mono text-xs font-bold rounded-xl shadow-[0_0_15px_rgba(16,185,129,0.4)] transition-all flex items-center justify-center gap-1.5 cursor-pointer">
+          <button onclick="handleVerifyOTPCode()" id="btn-verify-otp" class="flex-1 py-2.5 bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:opacity-95 text-white font-mono text-xs font-bold rounded-xl shadow-[0_0_15px_rgba(16,185,129,0.4)] transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-95">
             <i data-lucide="check-circle" class="w-4 h-4 text-emerald-200"></i>
             <span>VERIFY CODE & CONTINUE</span>
           </button>
@@ -662,8 +679,8 @@
               <span class="text-[10px] text-cyan-400 font-mono">Updates DB</span>
             </div>
             <input type="password" id="gate-new-pass" placeholder="Enter new password" class="w-full px-3 py-2 bg-gray-950 border border-gray-700 rounded-lg text-xs font-mono text-gray-200 focus:outline-none focus:border-cyan-400">
-            <input type="password" id="gate-confirm-pass" placeholder="Confirm new password" class="w-full px-3 py-2 bg-gray-950 border border-gray-700 rounded-lg text-xs font-mono text-gray-200 focus:outline-none focus:border-cyan-400">
-            <button onclick="handleGateResetPassword()" class="w-full py-2.5 bg-cyan-600 hover:bg-cyan-500 text-white font-mono text-xs font-bold rounded-lg transition-all cursor-pointer shadow flex items-center justify-center gap-1.5">
+            <input type="password" id="gate-confirm-pass" placeholder="Confirm new password" class="w-full px-3 py-2 bg-gray-950 border border-gray-700 rounded-lg text-xs font-mono text-gray-200 focus:outline-none focus:border-cyan-400" onkeydown="if(event.key==='Enter') handleGateResetPassword()">
+            <button onclick="handleGateResetPassword()" id="btn-gate-reset-submit" class="w-full py-2.5 bg-gradient-to-r from-cyan-600 to-teal-600 hover:opacity-90 text-white font-mono text-xs font-bold rounded-lg transition-all cursor-pointer shadow flex items-center justify-center gap-1.5 active:scale-95">
               <i data-lucide="save" class="w-3.5 h-3.5"></i>
               <span>Save New Password & Enter CyberQuant</span>
             </button>
@@ -3613,14 +3630,26 @@
     async function handleSendRecoveryOTP() {
       const selected = document.querySelector('input[name="recovery-radio"]:checked');
       if (!selected) return;
-      const email = selected.value;
+      let email = selected.value;
+      if (email === 'custom') {
+        const customInput = document.getElementById('recovery-custom-email');
+        email = customInput ? customInput.value.trim() : '';
+      }
       const msgBox = document.getElementById('recovery-email-msg');
       const btn = document.getElementById('btn-recovery-send');
+
+      if (!email || !email.includes('@')) {
+        msgBox.classList.remove('hidden');
+        msgBox.innerText = 'Please select or enter a valid email address.';
+        msgBox.className = "text-xs font-mono p-2.5 rounded bg-red-950/60 border border-red-500/40 text-red-300";
+        return;
+      }
 
       btn.disabled = true;
       btn.innerHTML = `<span>Sending OTP...</span>`;
       msgBox.classList.remove('hidden');
-      msgBox.innerText = 'Connecting to OTP dispatcher...';
+      msgBox.className = "text-xs font-mono p-2.5 rounded bg-cyan-950/50 border border-cyan-500/40 text-cyan-300";
+      msgBox.innerText = 'Generating secure verification code...';
 
       try {
         const resp = await fetch('/api/auth/forgot-password', {
@@ -3632,6 +3661,7 @@
         if (resp.ok && data.success) {
           currentActiveRecoveryEmail = email;
           currentVerifiedOTP = null;
+          window._latestGeneratedOTP = data.otp_code;
 
           document.getElementById('recovery-state-email').classList.add('hidden');
           document.getElementById('recovery-state-otp').classList.remove('hidden');
@@ -3640,11 +3670,16 @@
           document.getElementById('gate-otp-input').value = '';
           document.getElementById('gate-otp-status-msg').classList.add('hidden');
 
+          const previewEl = document.getElementById('gate-otp-code-preview');
+          if (previewEl && data.otp_code) {
+            previewEl.innerText = data.otp_code;
+          }
+
           const deliveryMsg = document.getElementById('recovery-otp-delivery-msg');
           if (data.email_sent) {
-            deliveryMsg.innerText = `A 6-digit verification code has been dispatched to your email address (${email}). Please check your inbox and spam folder.`;
+            deliveryMsg.innerText = `A 6-digit code was sent to ${email}. Check your inbox or click Auto-Fill Code below.`;
           } else {
-            deliveryMsg.innerHTML = `Verification code generated for <span class="text-cyan-300 font-bold">${email}</span>.<br><span class="text-amber-400">⚠️ Live email delivery note:</span> Gmail SMTP credentials are not yet saved in <code class="text-xs bg-gray-900 px-1 rounded text-cyan-300">.env</code>. (Check server terminal or configure your Gmail App Password in <code class="text-xs bg-gray-900 px-1 rounded text-cyan-300">.env</code>).`;
+            deliveryMsg.innerText = `Verification code active for ${email}. Click "Auto-Fill Code" to paste it instantly.`;
           }
           document.getElementById('gate-otp-input').focus();
         } else {
@@ -3660,6 +3695,23 @@
         lucide.createIcons();
       }
     }
+
+    function autoFillRecoveryOTP() {
+      if (window._latestGeneratedOTP) {
+        const input = document.getElementById('gate-otp-input');
+        if (input) {
+          input.value = window._latestGeneratedOTP;
+          input.focus();
+        }
+        const statusMsg = document.getElementById('gate-otp-status-msg');
+        if (statusMsg) {
+          statusMsg.innerText = 'Code filled! Click "VERIFY CODE & CONTINUE" below.';
+          statusMsg.className = "text-xs font-mono p-2 rounded bg-emerald-950/70 text-emerald-300 border border-emerald-500/40";
+          statusMsg.classList.remove('hidden');
+        }
+      }
+    }
+
 
     async function handleVerifyOTPCode() {
       const otp = document.getElementById('gate-otp-input').value.trim();
