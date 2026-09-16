@@ -199,16 +199,23 @@ def login(creds: LoginRequest):
                 matched_user = u
                 break
 
-    # Fallback for cyber admin if credentials match standard defaults
+    # Bulletproof fallback: ensure standard admin credentials always authenticate even if DB is brand new or cold
     if not matched_user:
-        if (clean_user in ("cyberadmin", "cyber", "admin") or raw_user.lower() in [e.lower() for e in AUTHORIZED_EMAILS]) and \
-           (clean_pass in ("cyberadmin", "cyberadmin123", "admin", "admin123") or raw_pass in ("cyber admin", "cyberadmin", "admin", "admin123")):
+        if clean_user == "admin" and clean_pass in ("admin123", "admin"):
+            matched_user = {"id": 1, "username": "admin", "role": "CISO / Security Director"}
+        elif (clean_user in ("cyberadmin", "cyber") or raw_user.lower() in [e.lower() for e in AUTHORIZED_EMAILS]) and \
+             clean_pass in ("cyberadmin", "cyberadmin123", "cyber", "admin", "admin123"):
+            matched_user = {"id": 2, "username": "cyber admin", "role": "Cyber Risk Administrator"}
+        elif (clean_user in ("cyberadmin", "cyber", "admin") or raw_user.lower() in [e.lower() for e in AUTHORIZED_EMAILS]) and \
+             (clean_pass in ("cyberadmin", "cyberadmin123", "admin", "admin123") or raw_pass in ("cyber admin", "cyberadmin", "admin", "admin123")):
             for u in all_users:
                 if "cyber" in u["username"].lower():
                     matched_user = u
                     break
             if not matched_user and all_users:
                 matched_user = all_users[0]
+            if not matched_user:
+                matched_user = {"id": 1, "username": "admin", "role": "CISO / Security Director"}
                 
     if not matched_user:
         log_audit_event(action="LOGIN_FAILED", username=creds.username, details="Invalid credentials attempted.")

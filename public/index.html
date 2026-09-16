@@ -319,6 +319,14 @@
             </div>
           </div>
 
+          <!-- Quick One-Click Demo Credentials -->
+          <div class="flex items-center justify-between text-[11px] font-mono px-1 py-0.5 bg-gray-900/60 border border-gray-800 rounded-lg">
+            <span class="text-gray-400">Demo: <code class="text-cyan-300 font-bold">admin</code> / <code class="text-cyan-300 font-bold">admin123</code></span>
+            <button type="button" onclick="document.getElementById('gate-username').value='admin'; document.getElementById('gate-password').value='admin123';" class="text-xs font-bold text-cyan-400 hover:text-cyan-300 hover:underline cursor-pointer flex items-center gap-1 bg-cyan-950/40 px-2 py-0.5 rounded border border-cyan-500/30">
+              <span>⚡ Auto-Fill</span>
+            </button>
+          </div>
+
           <button type="button" onclick="handleGateLogin(event)" id="btn-gate-submit" class="w-full py-3 bg-gradient-to-r from-cyan-600 via-teal-600 to-blue-600 hover:opacity-95 text-white font-mono text-xs font-bold rounded-xl transition-all shadow-[0_0_20px_rgba(6,182,212,0.4)] cursor-pointer flex items-center justify-center gap-2 active:scale-95">
             <i data-lucide="shield" class="w-4 h-4 text-cyan-200"></i>
             <span>SIGN IN TO CYBERQUANT AI</span>

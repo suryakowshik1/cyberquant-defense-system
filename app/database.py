@@ -166,6 +166,8 @@ def init_db(force_reset=False):
         VALUES (?, ?, ?)
         """, ("cyber admin", hash_password("cyber admin"), "Cyber Risk Administrator"))
 
+    conn.commit()
+
     cursor.execute("SELECT COUNT(*) FROM assets")
     if cursor.fetchone()[0] == 0:
         seed_data(cursor)
