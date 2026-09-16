@@ -34,6 +34,7 @@ load_env_file()
 AUTHORIZED_EMAILS = [
     "pavansaikumar5616@gmail.com",
     "suryakowshik8@gmail.com",
+    "cyberquant26@gmail.com",
     "admin@cyberquant.local"
 ]
 
@@ -159,9 +160,9 @@ def dispatch_otp_email(recipient_email: str, otp_code: str) -> dict:
     """
     smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com") or "smtp.gmail.com"
     smtp_port = int(os.getenv("SMTP_PORT", "587") or "587")
-    smtp_user = os.getenv("SMTP_USER", "").strip()
+    smtp_user = os.getenv("SMTP_USER", "cyberquant26@gmail.com").strip() or "cyberquant26@gmail.com"
     smtp_pass = os.getenv("SMTP_PASS", "").strip()
-    smtp_from = os.getenv("SMTP_FROM", "").strip() or smtp_user or "security@cyberquant.ai"
+    smtp_from = os.getenv("SMTP_FROM", "CyberQuant SOC Defense <cyberquant26@gmail.com>").strip() or "cyberquant26@gmail.com"
 
     if not smtp_user or not smtp_pass:
         return {"sent": False, "mode": "simulated", "note": "SMTP_USER or SMTP_PASS not set in environment."}

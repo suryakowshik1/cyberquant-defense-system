@@ -562,6 +562,7 @@
           </div>
           <h3 class="text-base font-extrabold text-white tracking-wide font-mono">ADMINISTRATOR RECOVERY</h3>
           <p class="text-xs text-gray-400">Select registered administrative email to receive a 6-digit OTP:</p>
+          <div class="text-[11px] text-amber-400 font-mono bg-amber-950/40 px-2 py-1 rounded border border-amber-500/30 inline-block">Official Sender: <span class="text-amber-300 font-bold">cyberquant26@gmail.com</span></div>
         </div>
 
         <div class="space-y-2.5 bg-gray-900/80 p-3.5 rounded-xl border border-gray-800 text-xs font-mono">
@@ -3706,7 +3707,7 @@
           document.getElementById('gate-otp-status-msg').classList.add('hidden');
 
           const deliveryMsg = document.getElementById('recovery-otp-delivery-msg');
-          deliveryMsg.innerHTML = `A 6-digit verification code has been dispatched to <strong class="text-cyan-300 font-mono">${email}</strong>.<br>Please open your Gmail app/browser, check your <strong>Inbox</strong> (or Spam folder), and type the 6-digit code below.`;
+          deliveryMsg.innerHTML = `A 6-digit verification code has been dispatched from <strong class="text-amber-300 font-mono">cyberquant26@gmail.com</strong> to <strong class="text-cyan-300 font-mono">${email}</strong>.<br>Please open your Gmail inbox (or Spam folder) and type the 6-digit code below.`;
           
           otpInput.focus();
         } else {
