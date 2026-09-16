@@ -11,7 +11,7 @@ from typing import List, Optional, Dict, Any
 # Ensure project root is in sys.path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from fastapi import FastAPI, HTTPException, Depends, Query, Path
+from fastapi import FastAPI, HTTPException, Depends, Query, Path, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse, Response
@@ -75,6 +75,29 @@ app.add_middleware(
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 os.makedirs(STATIC_DIR, exist_ok=True)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+# 3. Path Normalization Middleware for Vercel Serverless Function rewrites
+@app.middleware("http")
+async def path_normalization_middleware(request: Request, call_next):
+    # In Vercel serverless functions, x-matched-path or x-forwarded-uri carries the true client request path
+    real_path = request.headers.get("x-matched-path") or request.headers.get("x-forwarded-uri") or request.url.path
+    if "?" in real_path:
+        real_path = real_path.split("?")[0]
+        
+    # If the scope path became /api/index.py or lost its target route
+    if request.scope.get("path") in ("/api/index.py", "/api/index", "/index.py"):
+        if real_path and real_path not in ("/api/index.py", "/api/index", "/index.py"):
+            request.scope["path"] = real_path
+
+    # If Vercel stripped the /api prefix, prepend it so FastAPI routes match cleanly
+    cur_path = request.scope.get("path", "")
+    if not cur_path.startswith("/api") and any(cur_path.startswith(p) for p in [
+        "/auth", "/dashboard", "/scans", "/scan-website", "/assets", 
+        "/vulnerabilities", "/controls", "/optimize", "/simulate", "/monte-carlo", "/health", "/audit"
+    ]):
+        request.scope["path"] = "/api" + cur_path
+
+    return await call_next(request)
 
 
 # Helper Data Fetchers
@@ -153,12 +176,14 @@ def delete_scan_endpoint(scan_id: int):
 
 # Auth & Access Control API
 @app.get("/api/auth/recovery-emails")
+@app.get("/auth/recovery-emails")
 def get_recovery_emails():
     return {
         "recovery_emails": AUTHORIZED_EMAILS
     }
 
 @app.post("/api/auth/login")
+@app.post("/auth/login")
 def login(creds: LoginRequest):
     raw_user = (creds.username or "").strip()
     raw_pass = (creds.password or "").strip()
@@ -243,6 +268,7 @@ def login(creds: LoginRequest):
     }
 
 @app.post("/api/auth/forgot-password")
+@app.post("/auth/forgot-password")
 def forgot_password(req: ForgotPasswordRequest):
     res = generate_and_store_otp(req.email)
     if not res.get("success"):
@@ -253,6 +279,7 @@ def forgot_password(req: ForgotPasswordRequest):
     return res
 
 @app.post("/api/auth/verify-otp")
+@app.post("/auth/verify-otp")
 def verify_otp_endpoint(req: VerifyOtpRequest):
     val = verify_otp_code(req.email, req.otp, mark_used=False)
     if not val.get("valid"):
@@ -267,6 +294,7 @@ def verify_otp_endpoint(req: VerifyOtpRequest):
     }
 
 @app.post("/api/auth/verify-otp-skip")
+@app.post("/auth/verify-otp-skip")
 def verify_otp_skip(req: VerifyOtpSkipRequest):
     val = verify_otp_code(req.email, req.otp)
     if not val.get("valid"):
@@ -285,6 +313,7 @@ def verify_otp_skip(req: VerifyOtpSkipRequest):
     }
 
 @app.post("/api/auth/reset-password")
+@app.post("/auth/reset-password")
 def reset_password(req: ResetPasswordRequest):
     if not req.new_password or len(req.new_password.strip()) < 3:
         raise HTTPException(status_code=400, detail="New password must be at least 3 characters.")
