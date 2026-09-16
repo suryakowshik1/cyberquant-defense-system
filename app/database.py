@@ -43,9 +43,14 @@ def init_db(force_reset=False):
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         username TEXT UNIQUE NOT NULL,
         password_hash TEXT NOT NULL,
-        role TEXT NOT NULL
+        role TEXT NOT NULL,
+        email TEXT
     )
     """)
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN email TEXT")
+    except Exception:
+        pass
 
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS assets (
@@ -239,7 +244,41 @@ def seed_data(cursor):
 def update_user_password(username: str, new_password: str) -> bool:
     conn = get_db_connection()
     c = conn.cursor()
-    c.execute("UPDATE users SET password_hash = ? WHERE username = ?", (hash_password(new_password), username))
+    c.execute("UPDATE users SET password_hash = ? WHERE LOWER(username) = ? OR LOWER(email) = ?", (hash_password(new_password), username.lower(), username.lower()))
+    updated = c.rowcount > 0
+    conn.commit()
+    conn.close()
+    return updated
+
+def db_get_user_by_username_or_email(identifier: str):
+    """Fetches user record by username or email (case-insensitive)."""
+    conn = get_db_connection()
+    c = conn.cursor()
+    clean = (identifier or "").strip().lower()
+    c.execute("SELECT * FROM users WHERE LOWER(username) = ? OR LOWER(email) = ? LIMIT 1", (clean, clean))
+    row = c.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+def db_create_user(username: str, email: str, password_hash: str, role: str = "Cyber Risk Analyst"):
+    """Inserts a newly verified registered user into the database."""
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("""
+    INSERT INTO users (username, email, password_hash, role)
+    VALUES (?, ?, ?, ?)
+    """, (username.strip(), email.strip().lower(), password_hash, role))
+    conn.commit()
+    user_id = c.lastrowid
+    conn.close()
+    return user_id
+
+def db_update_user_password_by_email_or_username(identifier: str, new_password_hash: str) -> bool:
+    """Updates password hash for a user by email or username."""
+    conn = get_db_connection()
+    c = conn.cursor()
+    clean = (identifier or "").strip().lower()
+    c.execute("UPDATE users SET password_hash = ? WHERE LOWER(username) = ? OR LOWER(email) = ?", (new_password_hash, clean, clean))
     updated = c.rowcount > 0
     conn.commit()
     conn.close()

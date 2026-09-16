@@ -287,58 +287,160 @@
       </div>
 
       <!-- Login Card Container -->
-      <div class="bg-gray-950/85 border border-cyan-500/30 rounded-2xl p-6 sm:p-7 shadow-[0_0_50px_rgba(0,0,0,0.8)] backdrop-blur-xl space-y-4">
+      <div id="login-card-container" class="bg-gray-950/85 border border-cyan-500/30 rounded-2xl p-6 sm:p-7 shadow-[0_0_50px_rgba(0,0,0,0.8)] backdrop-blur-xl space-y-4">
         
-        <!-- Error Box -->
-        <div id="gate-error-box" class="hidden p-3 rounded-xl bg-red-950/70 border border-red-500/50 text-red-300 text-xs space-y-1 animate-shake">
-          <div class="flex items-center gap-1.5 font-bold">
-            <i data-lucide="alert-circle" class="w-4 h-4 text-red-400"></i>
-            <span>Authentication Failed</span>
-          </div>
-          <p class="text-[11px] text-gray-300">Incorrect username or password. If you forgot your password, please use the Reset Password option below.</p>
+        <!-- Auth Navigation Tabs: Sign In / Create Account -->
+        <div class="flex items-center p-1 bg-gray-900/90 rounded-xl border border-gray-800 text-xs font-mono">
+          <button type="button" id="tab-btn-signin" onclick="switchAuthTab('signin')" class="flex-1 py-2 rounded-lg font-bold transition-all text-cyan-300 bg-cyan-950/70 border border-cyan-500/40 shadow cursor-pointer">
+            Sign In
+          </button>
+          <button type="button" id="tab-btn-signup" onclick="switchAuthTab('signup')" class="flex-1 py-2 rounded-lg font-bold transition-all text-gray-400 hover:text-gray-200 cursor-pointer">
+            Create Account
+          </button>
         </div>
 
-        <form onsubmit="handleGateLogin(event); return false;" class="space-y-4">
-          <div>
-            <label class="block text-xs font-mono text-gray-300 mb-1.5">Username</label>
-            <div class="relative">
-              <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-500">
-                <i data-lucide="user" class="w-4 h-4 text-cyan-400"></i>
-              </div>
-              <input type="text" id="gate-username" placeholder="Enter username" required autocomplete="username" class="w-full pl-10 pr-4 py-2.5 bg-gray-900/90 border border-gray-700 rounded-xl text-sm text-gray-100 font-mono focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-500/30 transition-all" onkeydown="if(event.key==='Enter') handleGateLogin(event)">
+        <!-- ==================== TAB 1: SIGN IN VIEW ==================== -->
+        <div id="auth-panel-signin" class="space-y-4">
+          <!-- Error Box -->
+          <div id="gate-error-box" class="hidden p-3 rounded-xl bg-red-950/70 border border-red-500/50 text-red-300 text-xs space-y-1 animate-shake">
+            <div class="flex items-center gap-1.5 font-bold">
+              <i data-lucide="alert-circle" class="w-4 h-4 text-red-400"></i>
+              <span>Authentication Failed</span>
             </div>
+            <p class="text-[11px] text-gray-300">Incorrect username or password. If you forgot your password, please use the Reset Password option below.</p>
           </div>
 
-          <div>
-            <label class="block text-xs font-mono text-gray-300 mb-1.5">Password</label>
-            <div class="relative">
-              <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-500">
-                <i data-lucide="key" class="w-4 h-4 text-cyan-400"></i>
+          <form onsubmit="handleGateLogin(event); return false;" class="space-y-4">
+            <div>
+              <label class="block text-xs font-mono text-gray-300 mb-1.5">Username or Registered Email</label>
+              <div class="relative">
+                <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-500">
+                  <i data-lucide="user" class="w-4 h-4 text-cyan-400"></i>
+                </div>
+                <input type="text" id="gate-username" placeholder="Enter username or email" required autocomplete="username" class="w-full pl-10 pr-4 py-2.5 bg-gray-900/90 border border-gray-700 rounded-xl text-sm text-gray-100 font-mono focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-500/30 transition-all" onkeydown="if(event.key==='Enter') handleGateLogin(event)">
               </div>
-              <input type="password" id="gate-password" placeholder="••••••••" required autocomplete="current-password" class="w-full pl-10 pr-4 py-2.5 bg-gray-900/90 border border-gray-700 rounded-xl text-sm text-gray-100 font-mono focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-500/30 transition-all" onkeydown="if(event.key==='Enter') handleGateLogin(event)">
             </div>
-          </div>
 
-          <!-- Quick One-Click Demo Credentials -->
-          <div class="flex items-center justify-between text-[11px] font-mono px-1 py-0.5 bg-gray-900/60 border border-gray-800 rounded-lg">
-            <span class="text-gray-400">Demo: <code class="text-cyan-300 font-bold">admin</code> / <code class="text-cyan-300 font-bold">admin123</code></span>
-            <button type="button" onclick="document.getElementById('gate-username').value='admin'; document.getElementById('gate-password').value='admin123';" class="text-xs font-bold text-cyan-400 hover:text-cyan-300 hover:underline cursor-pointer flex items-center gap-1 bg-cyan-950/40 px-2 py-0.5 rounded border border-cyan-500/30">
-              <span>⚡ Auto-Fill</span>
+            <div>
+              <label class="block text-xs font-mono text-gray-300 mb-1.5">Password</label>
+              <div class="relative">
+                <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-500">
+                  <i data-lucide="key" class="w-4 h-4 text-cyan-400"></i>
+                </div>
+                <input type="password" id="gate-password" placeholder="••••••••" required autocomplete="current-password" class="w-full pl-10 pr-4 py-2.5 bg-gray-900/90 border border-gray-700 rounded-xl text-sm text-gray-100 font-mono focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-500/30 transition-all" onkeydown="if(event.key==='Enter') handleGateLogin(event)">
+              </div>
+            </div>
+
+            <button type="button" onclick="handleGateLogin(event)" id="btn-gate-submit" class="w-full py-3 bg-gradient-to-r from-cyan-600 via-teal-600 to-blue-600 hover:opacity-95 text-white font-mono text-xs font-bold rounded-xl transition-all shadow-[0_0_20px_rgba(6,182,212,0.4)] cursor-pointer flex items-center justify-center gap-2 active:scale-95">
+              <i data-lucide="shield" class="w-4 h-4 text-cyan-200"></i>
+              <span>SIGN IN TO CYBERQUANT AI</span>
             </button>
+          </form>
+
+          <!-- Links below Sign In -->
+          <div class="pt-2 border-t border-gray-800 space-y-2 text-center">
+            <button id="gate-btn-forgot" onclick="openRecoveryModal()" class="text-xs font-mono text-amber-400 hover:text-amber-300 hover:underline flex items-center justify-center gap-2 mx-auto py-1 px-3 rounded-lg transition-all cursor-pointer">
+              <i data-lucide="key-round" class="w-3.5 h-3.5 text-amber-400"></i>
+              <span>Forgot Password? Reset with OTP</span>
+            </button>
+            <div class="text-[11px] text-gray-400 font-mono">
+              New user? <button type="button" onclick="switchAuthTab('signup')" class="text-cyan-400 hover:text-cyan-300 font-bold underline cursor-pointer ml-1">Create an account</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- ==================== TAB 2: SIGN UP / REGISTRATION VIEW ==================== -->
+        <div id="auth-panel-signup" class="hidden space-y-4">
+          <!-- Step 1: Input Registration Details -->
+          <div id="signup-step-form" class="space-y-3.5">
+            <div class="p-2.5 bg-cyan-950/40 border border-cyan-500/30 rounded-xl text-[11px] font-mono text-cyan-300 flex items-start gap-2">
+              <i data-lucide="mail-check" class="w-4 h-4 text-cyan-400 mt-0.5 shrink-0"></i>
+              <span>A 6-digit OTP will be dispatched from <strong>cyberquant26@gmail.com</strong> to verify and activate your account.</span>
+            </div>
+
+            <!-- Registration Status Box -->
+            <div id="gate-reg-msg" class="hidden p-2.5 rounded-xl text-xs font-mono"></div>
+
+            <form onsubmit="handleSendRegistrationOTP(); return false;" class="space-y-3">
+              <div>
+                <label class="block text-xs font-mono text-gray-300 mb-1">Email Address</label>
+                <div class="relative">
+                  <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-500">
+                    <i data-lucide="mail" class="w-3.5 h-3.5 text-cyan-400"></i>
+                  </div>
+                  <input type="email" id="gate-reg-email" placeholder="yourname@gmail.com" required class="w-full pl-9 pr-3 py-2 bg-gray-900/90 border border-gray-700 rounded-xl text-xs text-gray-100 font-mono focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-500/30 transition-all">
+                </div>
+              </div>
+
+              <div>
+                <label class="block text-xs font-mono text-gray-300 mb-1">Create Username</label>
+                <div class="relative">
+                  <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-500">
+                    <i data-lucide="user" class="w-3.5 h-3.5 text-cyan-400"></i>
+                  </div>
+                  <input type="text" id="gate-reg-username" placeholder="e.g. jdoe" required class="w-full pl-9 pr-3 py-2 bg-gray-900/90 border border-gray-700 rounded-xl text-xs text-gray-100 font-mono focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-500/30 transition-all">
+                </div>
+              </div>
+
+              <div>
+                <label class="block text-xs font-mono text-gray-300 mb-1">Set Password</label>
+                <div class="relative">
+                  <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-500">
+                    <i data-lucide="lock" class="w-3.5 h-3.5 text-cyan-400"></i>
+                  </div>
+                  <input type="password" id="gate-reg-password" placeholder="Min. 4 characters" required class="w-full pl-9 pr-3 py-2 bg-gray-900/90 border border-gray-700 rounded-xl text-xs text-gray-100 font-mono focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-500/30 transition-all">
+                </div>
+              </div>
+
+              <div>
+                <label class="block text-xs font-mono text-gray-300 mb-1">Confirm Password</label>
+                <div class="relative">
+                  <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-500">
+                    <i data-lucide="shield-check" class="w-3.5 h-3.5 text-cyan-400"></i>
+                  </div>
+                  <input type="password" id="gate-reg-confirm" placeholder="Re-enter password" required class="w-full pl-9 pr-3 py-2 bg-gray-900/90 border border-gray-700 rounded-xl text-xs text-gray-100 font-mono focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-500/30 transition-all">
+                </div>
+              </div>
+
+              <button type="button" onclick="handleSendRegistrationOTP()" id="btn-gate-reg-send" class="w-full py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:opacity-95 text-white font-mono text-xs font-bold rounded-xl transition-all shadow-[0_0_15px_rgba(16,185,129,0.3)] cursor-pointer flex items-center justify-center gap-2 active:scale-95">
+                <i data-lucide="send" class="w-3.5 h-3.5"></i>
+                <span>SEND VERIFICATION OTP</span>
+              </button>
+            </form>
+
+            <div class="pt-1.5 border-t border-gray-800 text-center text-[11px] text-gray-400 font-mono">
+              Already registered? <button type="button" onclick="switchAuthTab('signin')" class="text-cyan-400 hover:text-cyan-300 font-bold underline cursor-pointer ml-1">Sign In</button>
+            </div>
           </div>
 
-          <button type="button" onclick="handleGateLogin(event)" id="btn-gate-submit" class="w-full py-3 bg-gradient-to-r from-cyan-600 via-teal-600 to-blue-600 hover:opacity-95 text-white font-mono text-xs font-bold rounded-xl transition-all shadow-[0_0_20px_rgba(6,182,212,0.4)] cursor-pointer flex items-center justify-center gap-2 active:scale-95">
-            <i data-lucide="shield" class="w-4 h-4 text-cyan-200"></i>
-            <span>SIGN IN TO CYBERQUANT AI</span>
-          </button>
-        </form>
+          <!-- Step 2: Enter Registration OTP -->
+          <div id="signup-step-otp" class="hidden space-y-3.5">
+            <div class="text-center space-y-1">
+              <div class="inline-flex p-2 bg-emerald-950/80 border border-emerald-500/40 rounded-lg text-emerald-400">
+                <i data-lucide="mail-check" class="w-5 h-5"></i>
+              </div>
+              <div class="text-xs font-mono font-bold text-white">ENTER VERIFICATION OTP</div>
+              <p class="text-[11px] text-gray-300">
+                6-digit code sent from <strong class="text-amber-300 font-mono">cyberquant26@gmail.com</strong> to <strong id="reg-target-email-disp" class="text-cyan-300 font-mono">...</strong>
+              </p>
+            </div>
 
-        <!-- Forgot Password Link -->
-        <div class="pt-2 border-t border-gray-800 text-center">
-          <button id="gate-btn-forgot" onclick="openRecoveryModal()" class="text-xs font-mono text-amber-400 hover:text-amber-300 hover:underline flex items-center justify-center gap-2 mx-auto py-1.5 px-3.5 rounded-xl border border-amber-500/30 hover:border-amber-500/60 bg-amber-950/20 transition-all cursor-pointer">
-            <i data-lucide="key-round" class="w-4 h-4 text-amber-400"></i>
-            <span>Forgot Password? Reset with OTP</span>
-          </button>
+            <!-- OTP Verification Msg -->
+            <div id="gate-reg-otp-msg" class="hidden p-2.5 rounded-xl text-xs font-mono"></div>
+
+            <div class="space-y-3">
+              <input type="text" id="gate-reg-otp-input" maxlength="6" placeholder="• • • • • •" class="w-full text-center text-2xl tracking-[0.4em] font-mono py-2.5 bg-gray-950 border border-cyan-500/60 rounded-xl text-cyan-300 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400" onkeydown="if(event.key==='Enter') handleVerifyRegistrationOTP()">
+
+              <button type="button" onclick="handleVerifyRegistrationOTP()" id="btn-gate-reg-verify" class="w-full py-2.5 bg-gradient-to-r from-emerald-600 to-cyan-600 hover:opacity-95 text-white font-mono text-xs font-bold rounded-xl transition-all shadow-[0_0_15px_rgba(16,185,129,0.3)] cursor-pointer flex items-center justify-center gap-2 active:scale-95">
+                <i data-lucide="check-circle" class="w-4 h-4"></i>
+                <span>VERIFY OTP & ACTIVATE ACCOUNT</span>
+              </button>
+
+              <button type="button" onclick="backToSignupForm()" class="w-full py-1.5 bg-gray-800/80 hover:bg-gray-700 text-gray-300 font-mono text-xs rounded-xl transition-all cursor-pointer">
+                Back to Edit Details
+              </button>
+            </div>
+          </div>
         </div>
 
       </div>
@@ -3527,6 +3629,154 @@
       } catch (e) {}
 
       return resp || new Response(JSON.stringify({ detail: 'Server unreachable. Please check connection.' }), { status: 503 });
+    }
+
+    // Auth Tabs Switcher
+    function switchAuthTab(tab) {
+      const btnSignin = document.getElementById('tab-btn-signin');
+      const btnSignup = document.getElementById('tab-btn-signup');
+      const panelSignin = document.getElementById('auth-panel-signin');
+      const panelSignup = document.getElementById('auth-panel-signup');
+      const errBox = document.getElementById('gate-error-box');
+      const regMsg = document.getElementById('gate-reg-msg');
+      if (errBox) errBox.classList.add('hidden');
+      if (regMsg) regMsg.classList.add('hidden');
+
+      if (tab === 'signup') {
+        if (btnSignin) btnSignin.className = "flex-1 py-2 rounded-lg font-bold transition-all text-gray-400 hover:text-gray-200 cursor-pointer";
+        if (btnSignup) btnSignup.className = "flex-1 py-2 rounded-lg font-bold transition-all text-cyan-300 bg-cyan-950/70 border border-cyan-500/40 shadow cursor-pointer";
+        if (panelSignin) panelSignin.classList.add('hidden');
+        if (panelSignup) panelSignup.classList.remove('hidden');
+        const sForm = document.getElementById('signup-step-form');
+        const sOtp = document.getElementById('signup-step-otp');
+        if (sForm) sForm.classList.remove('hidden');
+        if (sOtp) sOtp.classList.add('hidden');
+      } else {
+        if (btnSignup) btnSignup.className = "flex-1 py-2 rounded-lg font-bold transition-all text-gray-400 hover:text-gray-200 cursor-pointer";
+        if (btnSignin) btnSignin.className = "flex-1 py-2 rounded-lg font-bold transition-all text-cyan-300 bg-cyan-950/70 border border-cyan-500/40 shadow cursor-pointer";
+        if (panelSignup) panelSignup.classList.add('hidden');
+        if (panelSignin) panelSignin.classList.remove('hidden');
+      }
+      try { lucide.createIcons(); } catch(e){}
+    }
+
+    let currentPendingSignupEmail = '';
+
+    async function handleSendRegistrationOTP() {
+      const email = (document.getElementById('gate-reg-email')?.value || '').trim();
+      const username = (document.getElementById('gate-reg-username')?.value || '').trim();
+      const password = (document.getElementById('gate-reg-password')?.value || '').trim();
+      const confirm = (document.getElementById('gate-reg-confirm')?.value || '').trim();
+      const msgBox = document.getElementById('gate-reg-msg');
+      const btn = document.getElementById('btn-gate-reg-send');
+
+      if (!email || !email.includes('@') || !email.includes('.')) {
+        msgBox.classList.remove('hidden');
+        msgBox.innerText = 'Please enter a valid email address.';
+        msgBox.className = "p-2.5 rounded-xl text-xs font-mono bg-red-950/70 text-red-300 border border-red-500/40";
+        return;
+      }
+      if (!username || username.length < 3) {
+        msgBox.classList.remove('hidden');
+        msgBox.innerText = 'Username must be at least 3 characters.';
+        msgBox.className = "p-2.5 rounded-xl text-xs font-mono bg-red-950/70 text-red-300 border border-red-500/40";
+        return;
+      }
+      if (!password || password.length < 4) {
+        msgBox.classList.remove('hidden');
+        msgBox.innerText = 'Password must be at least 4 characters.';
+        msgBox.className = "p-2.5 rounded-xl text-xs font-mono bg-red-950/70 text-red-300 border border-red-500/40";
+        return;
+      }
+      if (password !== confirm) {
+        msgBox.classList.remove('hidden');
+        msgBox.innerText = 'Password and confirmation do not match.';
+        msgBox.className = "p-2.5 rounded-xl text-xs font-mono bg-red-950/70 text-red-300 border border-red-500/40";
+        return;
+      }
+
+      btn.disabled = true;
+      btn.innerHTML = `<span>DISPATCHING OTP...</span>`;
+      msgBox.classList.remove('hidden');
+      msgBox.className = "p-2.5 rounded-xl text-xs font-mono bg-cyan-950/60 text-cyan-300 border border-cyan-500/40";
+      msgBox.innerText = 'Generating secure OTP and contacting cyberquant26@gmail.com...';
+      try { lucide.createIcons(); } catch(e){}
+
+      try {
+        const resp = await apiFetch('/api/auth/register-request', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, username, password })
+        });
+        const data = await resp.json();
+        if (resp.ok && data.success) {
+          currentPendingSignupEmail = email;
+          document.getElementById('signup-step-form').classList.add('hidden');
+          document.getElementById('signup-step-otp').classList.remove('hidden');
+          document.getElementById('reg-target-email-disp').innerText = email;
+          document.getElementById('gate-reg-otp-input').value = '';
+          document.getElementById('gate-reg-otp-msg').classList.add('hidden');
+          document.getElementById('gate-reg-otp-input').focus();
+        } else {
+          msgBox.innerText = data.detail || 'Registration failed.';
+          msgBox.className = "p-2.5 rounded-xl text-xs font-mono bg-red-950/70 text-red-300 border border-red-500/40";
+        }
+      } catch (err) {
+        msgBox.innerText = 'Network error while contacting server.';
+        msgBox.className = "p-2.5 rounded-xl text-xs font-mono bg-red-950/70 text-red-300 border border-red-500/40";
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = `<i data-lucide="send" class="w-3.5 h-3.5"></i><span>SEND VERIFICATION OTP</span>`;
+        try { lucide.createIcons(); } catch(e){}
+      }
+    }
+
+    async function handleVerifyRegistrationOTP() {
+      const otp = (document.getElementById('gate-reg-otp-input')?.value || '').trim();
+      const msgBox = document.getElementById('gate-reg-otp-msg');
+      const btn = document.getElementById('btn-gate-reg-verify');
+
+      if (!otp || otp.length !== 6) {
+        msgBox.classList.remove('hidden');
+        msgBox.innerText = 'Please enter the complete 6-digit OTP code.';
+        msgBox.className = "p-2.5 rounded-xl text-xs font-mono bg-red-950/70 text-red-300 border border-red-500/40";
+        return;
+      }
+
+      btn.disabled = true;
+      btn.innerHTML = `<span>VERIFYING CODE...</span>`;
+      try { lucide.createIcons(); } catch(e){}
+
+      try {
+        const resp = await apiFetch('/api/auth/register-verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: currentPendingSignupEmail, otp })
+        });
+        const data = await resp.json();
+        if (resp.ok && data.success) {
+          // Registration successful -> Access Granted!
+          await showFullScreenAccessGranted(data.token, data.role || data.username);
+        } else {
+          msgBox.classList.remove('hidden');
+          msgBox.innerText = data.detail || 'OTP not matched. The code does not match.';
+          msgBox.className = "p-2.5 rounded-xl text-xs font-mono bg-red-950/70 text-red-300 border border-red-500/40";
+        }
+      } catch (err) {
+        msgBox.classList.remove('hidden');
+        msgBox.innerText = 'Network error while verifying OTP.';
+        msgBox.className = "p-2.5 rounded-xl text-xs font-mono bg-red-950/70 text-red-300 border border-red-500/40";
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = `<i data-lucide="check-circle" class="w-4 h-4"></i><span>VERIFY OTP & ACTIVATE ACCOUNT</span>`;
+        try { lucide.createIcons(); } catch(e){}
+      }
+    }
+
+    function backToSignupForm() {
+      document.getElementById('signup-step-otp').classList.add('hidden');
+      document.getElementById('signup-step-form').classList.remove('hidden');
+      try { lucide.createIcons(); } catch(e){}
     }
 
     // Gate Login Handler

@@ -18,6 +18,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 
 from app.database import (
     get_db_connection, init_db, hash_password, update_user_password,
+    db_get_user_by_username_or_email, db_create_user, db_update_user_password_by_email_or_username,
     save_scanned_website, get_recent_scans, get_scan_by_id, delete_scan_by_id,
     log_audit_event, get_audit_logs,
     db_get_all_assets, db_get_asset, db_create_asset, db_update_asset, db_delete_asset,
@@ -34,7 +35,7 @@ from app.website_scanner import scan_website_vulnerabilities
 from app.email_service import generate_and_store_otp, verify_otp_code, AUTHORIZED_EMAILS
 from app.models import (
     LoginRequest, LoginResponse, ForgotPasswordRequest, VerifyOtpRequest,
-    VerifyOtpSkipRequest, ResetPasswordRequest,
+    VerifyOtpSkipRequest, ResetPasswordRequest, RegisterRequest, RegisterVerifyRequest,
     AssetCreate, AssetUpdate, AssetResponse,
     VulnerabilityCreate, VulnerabilityUpdate, VulnerabilityResponse,
     SecurityControlCreate, SecurityControlUpdate, SecurityControlResponse,
@@ -50,8 +51,10 @@ VulnerabilityCreateRequest = VulnerabilityCreate
 # Initialize database schema if not already created
 init_db(force_reset=False)
 
-# In-memory runtime cache for dynamically reset administrative passwords
+# In-memory runtime cache for dynamically reset administrative passwords and registered users
 ACTIVE_PASSWORDS = {}
+ACTIVE_USERS = {}
+PENDING_REGISTRATIONS = {}
 
 app = FastAPI(
     title="CyberQuant AI - Continuous Cyber Risk Quantification & Defense Platform",
@@ -199,102 +202,184 @@ def get_recovery_emails():
         "recovery_emails": AUTHORIZED_EMAILS
     }
 
+# 1. User Registration Flow (Sign Up -> Dispatch OTP from cyberquant26@gmail.com -> Verify OTP -> Create User)
+@app.post("/api/auth/register-request")
+@app.post("/auth/register-request")
+@app.post("/register-request")
+def register_request_endpoint(req: RegisterRequest):
+    email = req.email.strip().lower()
+    username = req.username.strip()
+    raw_pass = req.password.strip()
+
+    if not email or "@" not in email or "." not in email:
+        raise HTTPException(status_code=400, detail="Please enter a valid email address.")
+    if not username or len(username) < 3:
+        raise HTTPException(status_code=400, detail="Username must be at least 3 characters long.")
+    if not raw_pass or len(raw_pass) < 4:
+        raise HTTPException(status_code=400, detail="Password must be at least 4 characters long.")
+
+    # Check if username or email is already taken
+    existing_user = db_get_user_by_username_or_email(username) or ACTIVE_USERS.get(username.lower())
+    if existing_user:
+        raise HTTPException(status_code=400, detail="Username is already taken. Please choose another username or Sign In.")
+
+    existing_email = db_get_user_by_username_or_email(email) or ACTIVE_USERS.get(email)
+    if existing_email:
+        raise HTTPException(status_code=400, detail="Email is already registered. Please Sign In or use Forgot Password.")
+
+    # Store registration details in pending cache
+    pw_hash = hash_password(raw_pass)
+    PENDING_REGISTRATIONS[email] = {
+        "username": username,
+        "email": email,
+        "password_hash": pw_hash
+    }
+
+    # Generate and dispatch 6-digit OTP from cyberquant26@gmail.com
+    otp_res = generate_and_store_otp(email)
+    if not otp_res.get("success"):
+        raise HTTPException(status_code=400, detail=otp_res.get("message", "Failed to dispatch verification OTP."))
+
+    log_audit_event(action="SIGNUP_OTP_DISPATCHED", details=f"Registration OTP sent to {email} for username '{username}'")
+    return {
+        "success": True,
+        "message": f"A 6-digit verification code has been dispatched from cyberquant26@gmail.com to {email}. Please enter the code below to complete registration.",
+        "email": email,
+        "username": username
+    }
+
+@app.post("/api/auth/register-verify")
+@app.post("/auth/register-verify")
+@app.post("/register-verify")
+def register_verify_endpoint(req: RegisterVerifyRequest):
+    email = req.email.strip().lower()
+    otp = req.otp.strip()
+
+    pending = PENDING_REGISTRATIONS.get(email)
+    if not pending:
+        # Fallback: check if active OTP exists for this email
+        raise HTTPException(status_code=400, detail="Registration session expired or not found. Please click Sign Up again.")
+
+    # Verify OTP match
+    val = verify_otp_code(email, otp, mark_used=True)
+    if not val.get("valid"):
+        log_audit_event(action="SIGNUP_OTP_FAILED", details=f"Invalid OTP entered for {email}")
+        raise HTTPException(status_code=400, detail="Incorrect verification OTP. The code does not match.")
+
+    # OTP matched! Save user into database
+    username = pending["username"]
+    password_hash = pending["password_hash"]
+    role = "Cyber Risk Analyst"
+
+    try:
+        db_create_user(username, email, password_hash, role=role)
+    except Exception as e:
+        print(f"[DB REGISTRATION NOTICE] {e}")
+
+    # Save to active memory cache for serverless instant access
+    ACTIVE_USERS[username.lower()] = {
+        "username": username,
+        "email": email,
+        "password_hash": password_hash,
+        "role": role
+    }
+    ACTIVE_USERS[email] = ACTIVE_USERS[username.lower()]
+    ACTIVE_PASSWORDS[username.lower()] = password_hash
+
+    # Clean up pending
+    PENDING_REGISTRATIONS.pop(email, None)
+
+    token = f"bearer_{username.replace(' ', '_')}_session"
+    log_audit_event(action="USER_REGISTERED_SUCCESS", username=username, details=f"New user registered with email {email}")
+
+    return {
+        "success": True,
+        "message": f"Account successfully created and activated for '{username}'! Welcome to CyberQuant AI.",
+        "username": username,
+        "role": role,
+        "token": token
+    }
+
+# 2. Login Flow (Username or Email + Password)
 @app.post("/api/auth/login")
 @app.post("/auth/login")
 @app.post("/login")
 def login(creds: LoginRequest):
     raw_user = (creds.username or "").strip()
     raw_pass = (creds.password or "").strip()
-    
+
+    if not raw_user or not raw_pass:
+        raise HTTPException(status_code=400, detail="Please enter both username and password.")
+
     clean_user = raw_user.lower().replace(" ", "").replace("_", "").replace("-", "")
-    clean_pass = raw_pass.lower().replace(" ", "").replace("_", "").replace("-", "")
-    
-    conn = get_db_connection()
-    c = conn.cursor()
-    c.execute("SELECT * FROM users")
-    all_users = [dict(r) for r in c.fetchall()]
-    conn.close()
-    
+    pw_hash = hash_password(raw_pass)
+
     matched_user = None
-    
-    # Check each user in database
-    for u in all_users:
-        db_user = u["username"].lower()
-        db_clean = db_user.replace(" ", "").replace("_", "").replace("-", "")
-        
-        # Determine if this DB user corresponds to what was entered
-        user_matches = False
-        if raw_user.lower() == db_user or clean_user == db_clean:
-            user_matches = True
-        elif clean_user in ("cyberadmin", "cyber") and "cyber" in db_user:
-            user_matches = True
-        elif clean_user == "admin" and db_user == "admin":
-            user_matches = True
-        elif raw_user.lower() in [e.lower() for e in AUTHORIZED_EMAILS] and "cyber" in db_user:
-            user_matches = True
-            
-        if user_matches:
-            # Check password
-            pw_hash = hash_password(raw_pass)
-            if (
-                u["password_hash"] == pw_hash or
-                u["password_hash"] == hash_password(clean_pass) or
-                clean_pass in ("cyberadmin", "cyberadmin123", "admin", "admin123") or
-                raw_pass in ("cyber admin", "cyberadmin", "admin", "admin123")
-            ):
-                matched_user = u
-                break
 
-    # Check if this user reset their password dynamically via Forgot Password
-    if not matched_user and (clean_user in ("admin", "cyberadmin", "cyber")):
+    # 1. Check in-memory registered users cache
+    if raw_user.lower() in ACTIVE_USERS:
+        u = ACTIVE_USERS[raw_user.lower()]
+        target_hash = ACTIVE_PASSWORDS.get(u["username"].lower(), u["password_hash"])
+        if pw_hash == target_hash:
+            matched_user = u
+
+    # 2. Check Database users table
+    if not matched_user:
+        db_user = db_get_user_by_username_or_email(raw_user)
+        if db_user:
+            uname_key = db_user["username"].lower()
+            target_hash = ACTIVE_PASSWORDS.get(uname_key, db_user["password_hash"])
+            if pw_hash == target_hash:
+                matched_user = db_user
+
+    # 3. Check dynamically updated passwords cache for standard accounts
+    if not matched_user and clean_user in ("admin", "cyberadmin", "cyber"):
         target_key = "admin" if clean_user == "admin" else "cyber admin"
-        if target_key in ACTIVE_PASSWORDS and hash_password(raw_pass) == ACTIVE_PASSWORDS[target_key]:
+        if target_key in ACTIVE_PASSWORDS and pw_hash == ACTIVE_PASSWORDS[target_key]:
             role = "CISO / Security Director" if clean_user == "admin" else "Cyber Risk Administrator"
-            uname = "admin" if clean_user == "admin" else "cyber admin"
-            matched_user = {"id": 1, "username": uname, "role": role}
+            matched_user = {"id": 1, "username": target_key, "role": role}
 
-    # Bulletproof fallback: ensure standard admin credentials always authenticate even if DB is brand new or cold
+    # 4. Standard admin credentials fallback
     if not matched_user:
-        if clean_user == "admin" and clean_pass in ("admin123", "admin"):
+        if clean_user == "admin" and raw_pass in ("admin123", "admin") and "admin" not in ACTIVE_PASSWORDS:
             matched_user = {"id": 1, "username": "admin", "role": "CISO / Security Director"}
-        elif (clean_user in ("cyberadmin", "cyber") or raw_user.lower() in [e.lower() for e in AUTHORIZED_EMAILS]) and \
-             clean_pass in ("cyberadmin", "cyberadmin123", "cyber", "admin", "admin123"):
+        elif clean_user in ("cyberadmin", "cyber") and raw_pass in ("cyber admin", "cyberadmin", "cyberadmin123") and "cyber admin" not in ACTIVE_PASSWORDS:
             matched_user = {"id": 2, "username": "cyber admin", "role": "Cyber Risk Administrator"}
-        elif (clean_user in ("cyberadmin", "cyber", "admin") or raw_user.lower() in [e.lower() for e in AUTHORIZED_EMAILS]) and \
-             (clean_pass in ("cyberadmin", "cyberadmin123", "admin", "admin123") or raw_pass in ("cyber admin", "cyberadmin", "admin", "admin123")):
-            for u in all_users:
-                if "cyber" in u["username"].lower():
-                    matched_user = u
-                    break
-            if not matched_user and all_users:
-                matched_user = all_users[0]
-            if not matched_user:
-                matched_user = {"id": 1, "username": "admin", "role": "CISO / Security Director"}
-                
+
     if not matched_user:
-        log_audit_event(action="LOGIN_FAILED", username=creds.username, details="Invalid credentials attempted.")
+        log_audit_event(action="LOGIN_FAILED", username=raw_user, details="Invalid credentials attempted.")
         raise HTTPException(status_code=401, detail="Invalid username or password. Check credentials or use Forgot Password.")
-    
-    token = f"bearer_{matched_user['username'].replace(' ', '_')}_secure_session"
+
+    token = f"bearer_{matched_user['username'].replace(' ', '_')}_session"
     log_audit_event(action="LOGIN_SUCCESS", username=matched_user["username"], details=f"Authenticated as {matched_user['role']}")
-    
+
     return {
         "success": True,
         "username": matched_user["username"],
-        "role": matched_user["role"],
+        "role": matched_user.get("role", "Security Analyst"),
         "token": token
     }
 
+# 3. Forgot Password Flow
 @app.post("/api/auth/forgot-password")
 @app.post("/auth/forgot-password")
 @app.post("/forgot-password")
 def forgot_password(req: ForgotPasswordRequest):
-    res = generate_and_store_otp(req.email)
+    email = req.email.strip().lower()
+
+    # Check if this email is registered in DB, memory, or authorized list
+    user_record = db_get_user_by_username_or_email(email) or ACTIVE_USERS.get(email)
+    is_authorized = email in [e.lower() for e in AUTHORIZED_EMAILS] or (user_record is not None)
+
+    if not is_authorized and "@" not in email:
+        raise HTTPException(status_code=400, detail="No registered account found with this email address.")
+
+    res = generate_and_store_otp(email)
     if not res.get("success"):
-        log_audit_event(action="OTP_REQUEST_FAILED", details=f"Rejected request for {req.email}")
+        log_audit_event(action="OTP_REQUEST_FAILED", details=f"Rejected request for {email}")
         raise HTTPException(status_code=400, detail=res.get("message"))
-    
-    log_audit_event(action="OTP_DISPATCHED", details=f"OTP generated for {req.email}")
+
+    log_audit_event(action="OTP_DISPATCHED", details=f"OTP generated for {email}")
     return res
 
 @app.post("/api/auth/verify-otp")
@@ -304,13 +389,13 @@ def verify_otp_endpoint(req: VerifyOtpRequest):
     val = verify_otp_code(req.email, req.otp, mark_used=False)
     if not val.get("valid"):
         log_audit_event(action="OTP_VERIFY_FAILED", details=f"Failed OTP match check for {req.email}")
-        raise HTTPException(status_code=400, detail=val.get("message"))
-    
+        raise HTTPException(status_code=400, detail="OTP not matched. The code does not match.")
+
     log_audit_event(action="OTP_MATCH_SUCCESS", details=f"OTP code verified successfully for {req.email}")
     return {
         "success": True,
         "valid": True,
-        "message": "OTP matched and verified successfully. Please choose an option below."
+        "message": "OTP matched and verified successfully. Please set your new password below."
     }
 
 @app.post("/api/auth/verify-otp-skip")
@@ -320,11 +405,11 @@ def verify_otp_skip(req: VerifyOtpSkipRequest):
     val = verify_otp_code(req.email, req.otp)
     if not val.get("valid"):
         log_audit_event(action="OTP_VERIFY_FAILED", details=f"Failed OTP verification for {req.email}")
-        raise HTTPException(status_code=400, detail=val.get("message"))
-    
+        raise HTTPException(status_code=400, detail="OTP not matched. The code does not match.")
+
     token = "bearer_admin_secure_session"
     log_audit_event(action="OTP_SKIP_LOGIN", username="admin", details=f"Granted direct access via OTP verification from {req.email}")
-    
+
     return {
         "success": True,
         "message": "OTP verified successfully. Access granted without modifying password.",
@@ -337,37 +422,56 @@ def verify_otp_skip(req: VerifyOtpSkipRequest):
 @app.post("/auth/reset-password")
 @app.post("/reset-password")
 def reset_password(req: ResetPasswordRequest):
-    if not req.new_password or len(req.new_password.strip()) < 3:
-        raise HTTPException(status_code=400, detail="New password must be at least 3 characters.")
-    
-    val = verify_otp_code(req.email, req.otp)
-    if not val.get("valid"):
-        log_audit_event(action="PASSWORD_RESET_FAILED", details=f"Invalid OTP for {req.email}")
-        raise HTTPException(status_code=400, detail=val.get("message"))
-    
+    email = req.email.strip().lower()
     new_pass = req.new_password.strip()
+
+    if not new_pass or len(new_pass) < 4:
+        raise HTTPException(status_code=400, detail="New password must be at least 4 characters.")
+
+    val = verify_otp_code(email, req.otp)
+    if not val.get("valid"):
+        log_audit_event(action="PASSWORD_RESET_FAILED", details=f"Invalid OTP for {email}")
+        raise HTTPException(status_code=400, detail="OTP not matched. The code does not match.")
+
     new_hash = hash_password(new_pass)
-    
-    # Update active in-memory cache
-    ACTIVE_PASSWORDS["admin"] = new_hash
-    ACTIVE_PASSWORDS["cyberadmin"] = new_hash
-    ACTIVE_PASSWORDS["cyber admin"] = new_hash
-    
-    # Update database
+
+    # 1. Update in-memory runtime cache for this user/email
+    if email in ACTIVE_USERS:
+        u = ACTIVE_USERS[email]
+        u["password_hash"] = new_hash
+        ACTIVE_PASSWORDS[u["username"].lower()] = new_hash
+        ACTIVE_PASSWORDS[email] = new_hash
+    else:
+        ACTIVE_PASSWORDS[email] = new_hash
+
+    # If this is admin or cyber admin
+    if email in ("pavansaikumar5616@gmail.com", "suryakowshik8@gmail.com", "cyberquant26@gmail.com", "admin@cyberquant.local"):
+        ACTIVE_PASSWORDS["admin"] = new_hash
+        ACTIVE_PASSWORDS["cyberadmin"] = new_hash
+        ACTIVE_PASSWORDS["cyber admin"] = new_hash
+
+    # 2. Update database
     try:
-        update_user_password("admin", new_pass)
-        update_user_password("cyber admin", new_pass)
+        db_update_user_password_by_email_or_username(email, new_hash)
+        if email in ("pavansaikumar5616@gmail.com", "suryakowshik8@gmail.com"):
+            update_user_password("admin", new_pass)
+            update_user_password("cyber admin", new_pass)
     except Exception as e:
         print(f"[DB NOTICE] Password update notice: {e}")
-    
-    token = "bearer_admin_secure_session"
-    log_audit_event(action="PASSWORD_RESET_SUCCESS", username="admin", details=f"Password changed and authenticated via OTP from {req.email}")
-    
+
+    # Determine username for token
+    matched = db_get_user_by_username_or_email(email) or ACTIVE_USERS.get(email)
+    uname = matched["username"] if matched else "admin"
+    role = matched.get("role", "CISO / Security Director") if matched else "CISO / Security Director"
+
+    token = f"bearer_{uname.replace(' ', '_')}_session"
+    log_audit_event(action="PASSWORD_RESET_SUCCESS", username=uname, details=f"Password updated and authenticated via OTP from {email}")
+
     return {
         "success": True,
-        "message": f"Password successfully updated to '{new_pass}'! Access granted to CyberQuant AI.",
-        "username": "admin",
-        "role": "CISO / Security Director",
+        "message": "Password successfully updated! Please log in with your new password.",
+        "username": uname,
+        "role": role,
         "token": token
     }
 
@@ -380,14 +484,26 @@ async def vercel_index_post_fallback(request: Request):
         data = await request.json()
     except Exception:
         data = {}
-    if "email" in data and "otp" not in data and "new_password" not in data:
+
+    # Check for Register Request: email + username + password (no otp)
+    if "email" in data and "username" in data and "password" in data and "otp" not in data:
+        return register_request_endpoint(RegisterRequest(**data))
+    # Check for Register Verify: email + otp (no new_password and pending exists)
+    elif "email" in data and "otp" in data and "new_password" not in data and data.get("email", "").lower() in PENDING_REGISTRATIONS:
+        return register_verify_endpoint(RegisterVerifyRequest(**data))
+    # Check for Forgot Password: email only
+    elif "email" in data and "otp" not in data and "new_password" not in data:
         return forgot_password(ForgotPasswordRequest(**data))
+    # Check for Reset Password: email + otp + new_password
     elif "email" in data and "otp" in data and "new_password" in data:
         return reset_password(ResetPasswordRequest(**data))
+    # Check for Verify OTP: email + otp
     elif "email" in data and "otp" in data:
         return verify_otp_endpoint(VerifyOtpRequest(**data))
+    # Check for Login: username + password
     elif "username" in data and "password" in data:
         return login(LoginRequest(**data))
+
     raise HTTPException(status_code=404, detail="Endpoint not found on direct index.py invoke")
 
 

@@ -35,6 +35,15 @@ class ResetPasswordRequest(BaseModel):
     otp: str
     new_password: str
 
+class RegisterRequest(BaseModel):
+    email: str = Field(..., description="User email for OTP dispatch")
+    username: str = Field(..., description="User requested username")
+    password: str = Field(..., description="User requested password")
+
+class RegisterVerifyRequest(BaseModel):
+    email: str
+    otp: str
+
 # ==============================================================================
 # ASSET MANAGEMENT SCHEMAS
 # ==============================================================================
