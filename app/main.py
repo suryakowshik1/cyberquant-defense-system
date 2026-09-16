@@ -359,10 +359,10 @@ async def path_normalization_middleware(request: Request, call_next):
     return await call_next(request)
 
 
-@app.get("/google83ed69733da61c18.html", include_in_schema=False)
-@app.get("/api/google83ed69733da61c18.html", include_in_schema=False)
+@app.get("/google78601ab27399c9f2.html", include_in_schema=False)
+@app.get("/api/google78601ab27399c9f2.html", include_in_schema=False)
 def google_verification_endpoint():
-    return Response(content="google-site-verification: google83ed69733da61c18.html", media_type="text/html")
+    return Response(content="google-site-verification: google78601ab27399c9f2.html", media_type="text/html")
 
 
 # Helper Data Fetchers
