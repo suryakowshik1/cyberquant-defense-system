@@ -5,3 +5,7 @@ build_*
 write_hex.py
 .DS_Store
 Thumbs.db
+*.bak
+*.before_fixes
+*.original_backup
+.env

@@ -80,14 +80,79 @@ def init_db(force_reset=False):
     )
     """)
 
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS password_resets (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        email TEXT NOT NULL,
+        otp_code TEXT NOT NULL,
+        expires_at REAL NOT NULL,
+        used INTEGER DEFAULT 0,
+        created_at REAL NOT NULL
+    )
+    """)
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS scanned_websites (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        target_url TEXT NOT NULL,
+        hostname TEXT NOT NULL,
+        scheme TEXT NOT NULL,
+        http_status INTEGER,
+        response_time_ms REAL,
+        security_score INTEGER NOT NULL,
+        security_grade TEXT NOT NULL,
+        critical_count INTEGER DEFAULT 0,
+        high_count INTEGER DEFAULT 0,
+        medium_count INTEGER DEFAULT 0,
+        low_count INTEGER DEFAULT 0,
+        findings_json TEXT,
+        passed_checks_json TEXT,
+        ssl_audit_json TEXT,
+        ports_audit_json TEXT,
+        raw_headers_json TEXT,
+        tech_stack_json TEXT,
+        exposed_info_json TEXT,
+        created_at TEXT NOT NULL
+    )
+    """)
+
+    try:
+        cursor.execute("ALTER TABLE scanned_websites ADD COLUMN tech_stack_json TEXT")
+    except Exception:
+        pass
+    try:
+        cursor.execute("ALTER TABLE scanned_websites ADD COLUMN exposed_info_json TEXT")
+    except Exception:
+        pass
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS audit_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT,
+        action TEXT NOT NULL,
+        details TEXT,
+        ip_address TEXT,
+        created_at TEXT NOT NULL
+    )
+    """)
+
     conn.commit()
 
-    cursor.execute("SELECT COUNT(*) FROM users")
-    if cursor.fetchone()[0] == 0:
+    # Ensure admin user
+    cursor.execute("SELECT id FROM users WHERE username = ?", ("admin",))
+    if not cursor.fetchone():
         cursor.execute("""
         INSERT INTO users (username, password_hash, role)
         VALUES (?, ?, ?)
         """, ("admin", hash_password("admin123"), "CISO / Security Director"))
+
+    # Ensure cyber admin user
+    cursor.execute("SELECT id FROM users WHERE username = ?", ("cyber admin",))
+    if not cursor.fetchone():
+        cursor.execute("""
+        INSERT INTO users (username, password_hash, role)
+        VALUES (?, ?, ?)
+        """, ("cyber admin", hash_password("cyber admin"), "Cyber Risk Administrator"))
 
     cursor.execute("SELECT COUNT(*) FROM assets")
     if cursor.fetchone()[0] == 0:
@@ -157,6 +222,366 @@ def seed_data(cursor):
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     """, controls)
 
+def update_user_password(username: str, new_password: str) -> bool:
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("UPDATE users SET password_hash = ? WHERE username = ?", (hash_password(new_password), username))
+    updated = c.rowcount > 0
+    conn.commit()
+    conn.close()
+    return updated
+
+def save_scanned_website(scan_data: dict) -> int:
+    conn = get_db_connection()
+    c = conn.cursor()
+    fc = scan_data.get("findings_count", {})
+    c.execute("""
+    INSERT INTO scanned_websites (
+        target_url, hostname, scheme, http_status, response_time_ms,
+        security_score, security_grade, critical_count, high_count,
+        medium_count, low_count, findings_json, passed_checks_json,
+        ssl_audit_json, ports_audit_json, raw_headers_json, tech_stack_json, exposed_info_json, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        scan_data.get("target_url", ""),
+        scan_data.get("hostname", ""),
+        scan_data.get("scheme", "https"),
+        scan_data.get("http_status"),
+        scan_data.get("response_time_ms", 0),
+        scan_data.get("security_score", 0),
+        scan_data.get("security_grade", "F"),
+        fc.get("critical", 0),
+        fc.get("high", 0),
+        fc.get("medium", 0),
+        fc.get("low", 0),
+        json.dumps(scan_data.get("findings", [])),
+        json.dumps(scan_data.get("passed_checks", [])),
+        json.dumps(scan_data.get("ssl_audit", {})),
+        json.dumps(scan_data.get("ports_audit", [])),
+        json.dumps(scan_data.get("raw_headers", {})),
+        json.dumps(scan_data.get("tech_stack", [])),
+        json.dumps(scan_data.get("exposed_info", {})),
+        scan_data.get("timestamp", "")
+    ))
+    conn.commit()
+    new_id = c.lastrowid
+    conn.close()
+    return new_id
+
+def get_recent_scans(limit: int = 10) -> list:
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("""
+    SELECT id, target_url, hostname, scheme, http_status, response_time_ms,
+           security_score, security_grade, critical_count, high_count,
+           medium_count, low_count, created_at
+    FROM scanned_websites
+    ORDER BY id DESC LIMIT ?
+    """, (limit,))
+    rows = [dict(r) for r in c.fetchall()]
+    conn.close()
+    return rows
+
+def get_scan_by_id(scan_id: int) -> dict:
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("SELECT * FROM scanned_websites WHERE id = ?", (scan_id,))
+    row = c.fetchone()
+    conn.close()
+    if not row:
+        return None
+    d = dict(row)
+    d["findings"] = json.loads(d["findings_json"] or "[]")
+    d["passed_checks"] = json.loads(d["passed_checks_json"] or "[]")
+    d["ssl_audit"] = json.loads(d["ssl_audit_json"] or "{}")
+    d["ports_audit"] = json.loads(d["ports_audit_json"] or "[]")
+    d["raw_headers"] = json.loads(d["raw_headers_json"] or "{}")
+    d["tech_stack"] = json.loads(d.get("tech_stack_json") or "[]")
+    d["exposed_info"] = json.loads(d.get("exposed_info_json") or "{}")
+    d["findings_count"] = {
+        "critical": d["critical_count"],
+        "high": d["high_count"],
+        "medium": d["medium_count"],
+        "low": d["low_count"],
+        "total": d["critical_count"] + d["high_count"] + d["medium_count"] + d["low_count"]
+    }
+    return d
+
+def delete_scan_by_id(scan_id: int) -> bool:
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("DELETE FROM scanned_websites WHERE id = ?", (scan_id,))
+    deleted = c.rowcount > 0
+    conn.commit()
+    conn.close()
+    return deleted
+
+def log_audit_event(action: str, username: str = None, details: str = None, ip_address: str = None):
+    import datetime
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("""
+    INSERT INTO audit_logs (username, action, details, ip_address, created_at)
+    VALUES (?, ?, ?, ?, ?)
+    """, (username or "anonymous", action, details or "", ip_address or "127.0.0.1", datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+    conn.commit()
+    conn.close()
+
+def get_audit_logs(limit: int = 25) -> list:
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("SELECT * FROM audit_logs ORDER BY id DESC LIMIT ?", (limit,))
+    rows = [dict(r) for r in c.fetchall()]
+    conn.close()
+    return rows
+
+# ==============================================================================
+# ASSETS CRUD OPERATIONS
+# ==============================================================================
+
+def db_get_all_assets() -> list:
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("SELECT * FROM assets ORDER BY id ASC")
+    rows = [dict(r) for r in c.fetchall()]
+    conn.close()
+    return rows
+
+def db_get_asset(asset_id: int) -> dict:
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("SELECT * FROM assets WHERE id = ?", (asset_id,))
+    row = c.fetchone()
+    if not row:
+        conn.close()
+        return None
+    asset_dict = dict(row)
+    c.execute("SELECT * FROM vulnerabilities WHERE asset_id = ?", (asset_id,))
+    asset_dict["vulnerabilities"] = [dict(v) for v in c.fetchall()]
+    conn.close()
+    return asset_dict
+
+def db_create_asset(data: dict) -> int:
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("""
+    INSERT INTO assets (name, asset_type, criticality, asset_value, data_sensitivity, department, internet_exposure, exposure_factor)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        data["name"], data["asset_type"], data["criticality"],
+        float(data["asset_value"]), data["data_sensitivity"],
+        data["department"], int(data.get("internet_exposure", 1)),
+        float(data.get("exposure_factor", 0.75))
+    ))
+    conn.commit()
+    new_id = c.lastrowid
+    conn.close()
+    return new_id
+
+def db_update_asset(asset_id: int, data: dict) -> bool:
+    conn = get_db_connection()
+    c = conn.cursor()
+    fields = []
+    values = []
+    for k in ["name", "asset_type", "criticality", "asset_value", "data_sensitivity", "department", "internet_exposure", "exposure_factor"]:
+        if k in data and data[k] is not None:
+            fields.append(f"{k} = ?")
+            values.append(data[k])
+    if not fields:
+        conn.close()
+        return False
+    values.append(asset_id)
+    query = f"UPDATE assets SET {', '.join(fields)} WHERE id = ?"
+    c.execute(query, tuple(values))
+    updated = c.rowcount > 0
+    conn.commit()
+    conn.close()
+    return updated
+
+def db_delete_asset(asset_id: int) -> bool:
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("DELETE FROM vulnerabilities WHERE asset_id = ?", (asset_id,))
+    c.execute("DELETE FROM assets WHERE id = ?", (asset_id,))
+    deleted = c.rowcount > 0
+    conn.commit()
+    conn.close()
+    return deleted
+
+# ==============================================================================
+# VULNERABILITIES CRUD OPERATIONS
+# ==============================================================================
+
+def db_get_all_vulnerabilities() -> list:
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("""
+    SELECT v.*, a.name as asset_name, a.asset_type, a.criticality as asset_criticality, a.asset_value
+    FROM vulnerabilities v
+    JOIN assets a ON v.asset_id = a.id
+    ORDER BY v.cvss_score DESC
+    """)
+    rows = [dict(r) for r in c.fetchall()]
+    conn.close()
+    return rows
+
+def db_get_vulnerability(vuln_id: int) -> dict:
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("""
+    SELECT v.*, a.name as asset_name, a.asset_type, a.criticality as asset_criticality, a.asset_value, a.exposure_factor
+    FROM vulnerabilities v
+    JOIN assets a ON v.asset_id = a.id
+    WHERE v.id = ?
+    """, (vuln_id,))
+    row = c.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+def db_create_vulnerability(data: dict) -> int:
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("""
+    INSERT INTO vulnerabilities (cve_id, title, cvss_score, exploitability, asset_id, category, patch_available, exposure_level, threat_likelihood, description)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        data["cve_id"], data["title"], float(data["cvss_score"]),
+        float(data["exploitability"]), int(data["asset_id"]),
+        data["category"], int(data.get("patch_available", 1)),
+        data.get("exposure_level", "Public Internet"),
+        float(data.get("threat_likelihood", 0.50)),
+        data.get("description", "")
+    ))
+    conn.commit()
+    new_id = c.lastrowid
+    conn.close()
+    return new_id
+
+def db_update_vulnerability(vuln_id: int, data: dict) -> bool:
+    conn = get_db_connection()
+    c = conn.cursor()
+    fields = []
+    values = []
+    for k in ["cve_id", "title", "cvss_score", "exploitability", "asset_id", "category", "patch_available", "exposure_level", "threat_likelihood", "description"]:
+        if k in data and data[k] is not None:
+            fields.append(f"{k} = ?")
+            values.append(data[k])
+    if not fields:
+        conn.close()
+        return False
+    values.append(vuln_id)
+    query = f"UPDATE vulnerabilities SET {', '.join(fields)} WHERE id = ?"
+    c.execute(query, tuple(values))
+    updated = c.rowcount > 0
+    conn.commit()
+    conn.close()
+    return updated
+
+def db_delete_vulnerability(vuln_id: int) -> bool:
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("DELETE FROM vulnerabilities WHERE id = ?", (vuln_id,))
+    deleted = c.rowcount > 0
+    conn.commit()
+    conn.close()
+    return deleted
+
+# ==============================================================================
+# SECURITY CONTROLS CRUD OPERATIONS
+# ==============================================================================
+
+def db_get_all_controls() -> list:
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("SELECT * FROM security_controls ORDER BY id ASC")
+    rows = []
+    for r in c.fetchall():
+        d = dict(r)
+        if isinstance(d.get("affected_asset_types"), str):
+            try:
+                d["affected_asset_types"] = json.loads(d["affected_asset_types"])
+            except Exception:
+                d["affected_asset_types"] = [d["affected_asset_types"]]
+        rows.append(d)
+    conn.close()
+    return rows
+
+def db_get_control(control_id: int) -> dict:
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("SELECT * FROM security_controls WHERE id = ?", (control_id,))
+    row = c.fetchone()
+    conn.close()
+    if not row:
+        return None
+    d = dict(row)
+    if isinstance(d.get("affected_asset_types"), str):
+        try:
+            d["affected_asset_types"] = json.loads(d["affected_asset_types"])
+        except Exception:
+            d["affected_asset_types"] = [d["affected_asset_types"]]
+    return d
+
+def db_create_control(data: dict) -> int:
+    conn = get_db_connection()
+    c = conn.cursor()
+    affected = data.get("affected_asset_types", [])
+    if not isinstance(affected, str):
+        affected = json.dumps(affected)
+    c.execute("""
+    INSERT INTO security_controls (name, category, cost, risk_reduction_pct, loss_reduction_pct, affected_asset_types, description, implementation_time_weeks)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        data["name"], data["category"], float(data["cost"]),
+        float(data["risk_reduction_pct"]), float(data["loss_reduction_pct"]),
+        affected, data["description"], int(data["implementation_time_weeks"])
+    ))
+    conn.commit()
+    new_id = c.lastrowid
+    conn.close()
+    return new_id
+
+def db_update_control(control_id: int, data: dict) -> bool:
+    conn = get_db_connection()
+    c = conn.cursor()
+    fields = []
+    values = []
+    for k in ["name", "category", "cost", "risk_reduction_pct", "loss_reduction_pct", "description", "implementation_time_weeks"]:
+        if k in data and data[k] is not None:
+            fields.append(f"{k} = ?")
+            values.append(data[k])
+    if "affected_asset_types" in data and data["affected_asset_types"] is not None:
+        affected = data["affected_asset_types"]
+        if not isinstance(affected, str):
+            affected = json.dumps(affected)
+        fields.append("affected_asset_types = ?")
+        values.append(affected)
+    if not fields:
+        conn.close()
+        return False
+    values.append(control_id)
+    query = f"UPDATE security_controls SET {', '.join(fields)} WHERE id = ?"
+    c.execute(query, tuple(values))
+    updated = c.rowcount > 0
+    conn.commit()
+    conn.close()
+    return updated
+
+def db_delete_control(control_id: int) -> bool:
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("DELETE FROM security_controls WHERE id = ?", (control_id,))
+    deleted = c.rowcount > 0
+    conn.commit()
+    conn.close()
+    return deleted
+
+def db_reset_database() -> dict:
+    init_db(force_reset=True)
+    return {"success": True, "message": "Database reset to factory default demonstration dataset."}
+
 if __name__ == "__main__":
     init_db(force_reset=True)
     print("PHASE 1 COMPLETE: Database successfully initialized and seeded!")
+
+
