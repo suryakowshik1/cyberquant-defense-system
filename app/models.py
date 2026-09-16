@@ -10,9 +10,9 @@ from pydantic import BaseModel, Field
 # ==============================================================================
 
 class LoginRequest(BaseModel):
-    username: str = Field(..., description="Administrator username or authorized email")
-    password: str = Field(..., description="User password")
-    auth_vault: Optional[str] = Field(None, description="Optional HMAC auth sync token")
+    username: str = Field(..., min_length=1, max_length=100, description="Administrator username or authorized email")
+    password: str = Field(..., min_length=1, max_length=256, description="User password")
+    auth_vault: Optional[str] = Field(None, max_length=1024, description="Optional HMAC auth sync token")
 
 class LoginResponse(BaseModel):
     success: bool
@@ -21,61 +21,61 @@ class LoginResponse(BaseModel):
     token: str
 
 class ForgotPasswordRequest(BaseModel):
-    email: str = Field(..., description="Designated administrative recovery email")
+    email: str = Field(..., min_length=3, max_length=150, description="Designated administrative recovery email")
 
 class VerifyOtpRequest(BaseModel):
-    email: str
-    otp: str
+    email: str = Field(..., min_length=3, max_length=150)
+    otp: str = Field(..., min_length=4, max_length=12)
 
 class VerifyOtpSkipRequest(BaseModel):
-    email: str
-    otp: str
+    email: str = Field(..., min_length=3, max_length=150)
+    otp: str = Field(..., min_length=4, max_length=12)
 
 class ResetPasswordRequest(BaseModel):
-    email: str
-    otp: str
-    new_password: str
+    email: str = Field(..., min_length=3, max_length=150)
+    otp: str = Field(..., min_length=4, max_length=12)
+    new_password: str = Field(..., min_length=4, max_length=256)
 
 class RegisterRequest(BaseModel):
-    email: str = Field(..., description="User email for OTP dispatch")
-    username: str = Field(..., description="User requested username")
-    password: str = Field(..., description="User requested password")
+    email: str = Field(..., min_length=3, max_length=150, description="User email for OTP dispatch")
+    username: str = Field(..., min_length=2, max_length=50, description="User requested username")
+    password: str = Field(..., min_length=4, max_length=256, description="User requested password")
 
 class RegisterVerifyRequest(BaseModel):
-    email: str
-    otp: str
+    email: str = Field(..., min_length=3, max_length=150)
+    otp: str = Field(..., min_length=4, max_length=12)
 
 class FirewallVerifyRequest(BaseModel):
-    passcode: str = Field(..., description="Master firewall passcode")
+    passcode: str = Field(..., min_length=1, max_length=64, description="Master firewall passcode")
 
 class FirewallForgotRequest(BaseModel):
-    origin: Optional[str] = Field(None, description="Client origin for email reset link")
+    origin: Optional[str] = Field(None, max_length=255, description="Client origin for email reset link")
 
 class FirewallResetRequest(BaseModel):
-    token_or_otp: str = Field(..., description="Passcode reset token or verification OTP")
-    new_passcode: str = Field(..., description="New master firewall passcode")
+    token_or_otp: str = Field(..., min_length=4, max_length=256, description="Passcode reset token or verification OTP")
+    new_passcode: str = Field(..., min_length=4, max_length=64, description="New master firewall passcode")
 
 # ==============================================================================
 # ASSET MANAGEMENT SCHEMAS
 # ==============================================================================
 
 class AssetCreate(BaseModel):
-    name: str = Field(..., example="Primary Transaction Database")
-    asset_type: str = Field(..., example="Database")
-    criticality: str = Field(..., example="Critical", description="Critical, High, Medium, or Low")
-    asset_value: float = Field(..., gt=0, example=5000000.0, description="Replacement / business value in INR")
-    data_sensitivity: str = Field(..., example="Confidential / PII")
-    department: str = Field(..., example="Core Engineering and IT")
+    name: str = Field(..., min_length=1, max_length=200, example="Primary Transaction Database")
+    asset_type: str = Field(..., min_length=1, max_length=100, example="Database")
+    criticality: str = Field(..., min_length=1, max_length=50, example="Critical", description="Critical, High, Medium, or Low")
+    asset_value: float = Field(..., gt=0, le=10_000_000_000.0, example=5000000.0, description="Replacement / business value in INR")
+    data_sensitivity: str = Field(..., min_length=1, max_length=100, example="Confidential / PII")
+    department: str = Field(..., min_length=1, max_length=100, example="Core Engineering and IT")
     internet_exposure: int = Field(1, ge=0, le=1, description="1 for internet-exposed, 0 for internal")
     exposure_factor: float = Field(0.75, ge=0.01, le=1.0, description="FAIR Exposure Factor percentage (0.01 - 1.0)")
 
 class AssetUpdate(BaseModel):
-    name: Optional[str] = None
-    asset_type: Optional[str] = None
-    criticality: Optional[str] = None
-    asset_value: Optional[float] = Field(None, gt=0)
-    data_sensitivity: Optional[str] = None
-    department: Optional[str] = None
+    name: Optional[str] = Field(None, min_length=1, max_length=200)
+    asset_type: Optional[str] = Field(None, min_length=1, max_length=100)
+    criticality: Optional[str] = Field(None, min_length=1, max_length=50)
+    asset_value: Optional[float] = Field(None, gt=0, le=10_000_000_000.0)
+    data_sensitivity: Optional[str] = Field(None, min_length=1, max_length=100)
+    department: Optional[str] = Field(None, min_length=1, max_length=100)
     internet_exposure: Optional[int] = Field(None, ge=0, le=1)
     exposure_factor: Optional[float] = Field(None, ge=0.01, le=1.0)
 
@@ -87,28 +87,28 @@ class AssetResponse(AssetCreate):
 # ==============================================================================
 
 class VulnerabilityCreate(BaseModel):
-    cve_id: str = Field(..., example="CVE-2024-3400")
-    title: str = Field(..., example="Critical SQL Injection and Remote Code Execution in API")
+    cve_id: str = Field(..., min_length=3, max_length=50, example="CVE-2024-3400")
+    title: str = Field(..., min_length=1, max_length=250, example="Critical SQL Injection and Remote Code Execution in API")
     cvss_score: float = Field(..., ge=0.0, le=10.0, example=9.8)
     exploitability: float = Field(..., ge=0.0, le=1.0, example=0.90)
     asset_id: int = Field(..., gt=0)
-    category: str = Field(..., example="Remote Code Execution")
+    category: str = Field(..., min_length=1, max_length=100, example="Remote Code Execution")
     patch_available: int = Field(1, ge=0, le=1)
-    exposure_level: str = Field("Public Internet", example="Public Internet")
+    exposure_level: str = Field("Public Internet", min_length=1, max_length=100, example="Public Internet")
     threat_likelihood: float = Field(0.50, ge=0.01, le=1.0, example=0.50)
-    description: str = Field("", example="Flaw in public API endpoints allowing unauthenticated RCE.")
+    description: str = Field("", max_length=2000, example="Flaw in public API endpoints allowing unauthenticated RCE.")
 
 class VulnerabilityUpdate(BaseModel):
-    cve_id: Optional[str] = None
-    title: Optional[str] = None
+    cve_id: Optional[str] = Field(None, min_length=3, max_length=50)
+    title: Optional[str] = Field(None, min_length=1, max_length=250)
     cvss_score: Optional[float] = Field(None, ge=0.0, le=10.0)
     exploitability: Optional[float] = Field(None, ge=0.0, le=1.0)
-    asset_id: Optional[int] = None
-    category: Optional[str] = None
+    asset_id: Optional[int] = Field(None, gt=0)
+    category: Optional[str] = Field(None, min_length=1, max_length=100)
     patch_available: Optional[int] = Field(None, ge=0, le=1)
-    exposure_level: Optional[str] = None
+    exposure_level: Optional[str] = Field(None, min_length=1, max_length=100)
     threat_likelihood: Optional[float] = Field(None, ge=0.01, le=1.0)
-    description: Optional[str] = None
+    description: Optional[str] = Field(None, max_length=2000)
 
 class VulnerabilityResponse(VulnerabilityCreate):
     id: int
@@ -118,24 +118,24 @@ class VulnerabilityResponse(VulnerabilityCreate):
 # ==============================================================================
 
 class SecurityControlCreate(BaseModel):
-    name: str = Field(..., example="Vulnerability Patching and Hotfix Automation")
-    category: str = Field(..., example="Patch Management")
-    cost: float = Field(..., ge=0, example=120000.0, description="Cost in INR")
+    name: str = Field(..., min_length=1, max_length=200, example="Vulnerability Patching and Hotfix Automation")
+    category: str = Field(..., min_length=1, max_length=100, example="Patch Management")
+    cost: float = Field(..., ge=0, le=10_000_000_000.0, example=120000.0, description="Cost in INR")
     risk_reduction_pct: float = Field(..., ge=0, le=100.0, example=38.0)
     loss_reduction_pct: float = Field(..., ge=0, le=100.0, example=42.0)
     affected_asset_types: List[str] = Field(..., example=["Database", "Web Application"])
-    description: str = Field(..., example="Automated zero-day patch pipeline for critical RCE.")
-    implementation_time_weeks: int = Field(..., ge=1, example=2)
+    description: str = Field(..., max_length=2000, example="Automated zero-day patch pipeline for critical RCE.")
+    implementation_time_weeks: int = Field(..., ge=1, le=520, example=2)
 
 class SecurityControlUpdate(BaseModel):
-    name: Optional[str] = None
-    category: Optional[str] = None
-    cost: Optional[float] = Field(None, ge=0)
+    name: Optional[str] = Field(None, min_length=1, max_length=200)
+    category: Optional[str] = Field(None, min_length=1, max_length=100)
+    cost: Optional[float] = Field(None, ge=0, le=10_000_000_000.0)
     risk_reduction_pct: Optional[float] = Field(None, ge=0, le=100.0)
     loss_reduction_pct: Optional[float] = Field(None, ge=0, le=100.0)
     affected_asset_types: Optional[List[str]] = None
-    description: Optional[str] = None
-    implementation_time_weeks: Optional[int] = Field(None, ge=1)
+    description: Optional[str] = Field(None, max_length=2000)
+    implementation_time_weeks: Optional[int] = Field(None, ge=1, le=520)
 
 class SecurityControlResponse(BaseModel):
     id: int
@@ -156,7 +156,7 @@ class SecurityControlResponse(BaseModel):
 # ==============================================================================
 
 class OptimizationRequest(BaseModel):
-    budget: float = Field(500000.0, ge=10000.0, example=500000.0, description="Available security capital in INR")
+    budget: float = Field(500000.0, ge=1000.0, le=10_000_000_000.0, example=500000.0, description="Available security capital in INR")
 
 class SimulationRequest(BaseModel):
     threat_multiplier: float = Field(1.0, ge=0.1, le=5.0, example=1.0)
@@ -174,7 +174,7 @@ class MonteCarloRequest(BaseModel):
 # ==============================================================================
 
 class WebsiteScanRequest(BaseModel):
-    url: str = Field(..., example="https://example.com", description="Target domain or URL to audit")
+    url: str = Field(..., min_length=3, max_length=1000, example="https://example.com", description="Target domain or URL to audit")
 
 # ==============================================================================
 # GENERIC & BULK IMPORT/EXPORT SCHEMAS
@@ -186,6 +186,6 @@ class GenericMessageResponse(BaseModel):
     details: Optional[Any] = None
 
 class BulkImportRequest(BaseModel):
-    entity_type: str = Field(..., example="assets", description="assets, vulnerabilities, or controls")
+    entity_type: str = Field(..., max_length=50, example="assets", description="assets, vulnerabilities, or controls")
     items: List[Dict[str, Any]]
 

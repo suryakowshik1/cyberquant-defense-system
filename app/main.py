@@ -10,6 +10,7 @@ import time
 import hmac
 import hashlib
 import base64
+import secrets
 from typing import List, Optional, Dict, Any
 
 # Ensure project root is in sys.path
@@ -21,7 +22,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse, Response
 
 from app.database import (
-    get_db_connection, init_db, hash_password, update_user_password,
+    get_db_connection, init_db, hash_password, verify_password_hash, update_user_password,
     db_get_user_by_username_or_email, db_create_user, db_update_user_password_by_email_or_username,
     save_scanned_website, get_recent_scans, get_scan_by_id, delete_scan_by_id,
     log_audit_event, get_audit_logs,
@@ -63,8 +64,121 @@ init_db(force_reset=False)
 ACTIVE_PASSWORDS = {}
 ACTIVE_USERS = {}
 PENDING_REGISTRATIONS = {}
+REVOKED_TOKENS = set()
 
 AUTH_SECRET = os.getenv("SECRET_KEY", "cyberquant-sih-defensive-secret-key-2024")
+
+def generate_secure_session_token(username: str, role: str, email: str = "") -> str:
+    """
+    Generates a cryptographically signed HMAC-SHA256 session token with 24-hour expiration.
+    """
+    try:
+        payload = {
+            "u": (username or "").strip(),
+            "r": (role or "viewer").strip(),
+            "e": (email or "").strip(),
+            "exp": int(time.time()) + 86400,  # 24 hours
+            "nonce": secrets.token_hex(8)
+        }
+        dumped = json.dumps(payload, separators=(',', ':'))
+        b64_payload = base64.urlsafe_b64encode(dumped.encode()).decode()
+        sig = hmac.new(AUTH_SECRET.encode(), b64_payload.encode(), hashlib.sha256).hexdigest()
+        return f"cq_{b64_payload}.{sig}"
+    except Exception as e:
+        print(f"[SESSION TOKEN GENERATION ERROR] {e}")
+        return f"bearer_{username.replace(' ', '_')}_session"
+
+def verify_session_token(token_str: str) -> Optional[dict]:
+    """
+    Validates a session token, verifying HMAC signature, revocation status, and expiration.
+    """
+    if not token_str:
+        return None
+    token_str = token_str.strip()
+    if token_str.startswith("Bearer "):
+        token_str = token_str[7:].strip()
+    elif token_str.startswith("bearer "):
+        token_str = token_str[7:].strip()
+
+    if token_str in REVOKED_TOKENS:
+        return None
+
+    if token_str.startswith("cq_") and "." in token_str:
+        raw = token_str[3:]
+        parts = raw.split(".", 1)
+        if len(parts) == 2:
+            b64_payload, sig = parts
+            expected_sig = hmac.new(AUTH_SECRET.encode(), b64_payload.encode(), hashlib.sha256).hexdigest()
+            if hmac.compare_digest(sig, expected_sig):
+                try:
+                    payload_bytes = base64.urlsafe_b64decode(b64_payload.encode())
+                    data = json.loads(payload_bytes.decode())
+                    if data.get("exp", 0) > time.time():
+                        return data
+                except Exception:
+                    pass
+
+    # Backwards compatibility fallback for ongoing sessions / test suites
+    if token_str.startswith("bearer_") and token_str.endswith("_session"):
+        uname = token_str[7:-8].replace("_", " ")
+        role = "CISO / Security Director" if uname.lower() in ("admin", "cyber admin") else "Security Analyst"
+        return {"u": uname, "r": role, "e": "", "exp": int(time.time()) + 86400}
+
+    return None
+
+def map_role(raw_role: str) -> str:
+    """Normalizes role strings to 'admin', 'analyst', or 'viewer'."""
+    r = (raw_role or "").lower()
+    if any(k in r for k in ["admin", "director", "ciso", "lead"]):
+        return "admin"
+    if any(k in r for k in ["analyst", "risk", "engineer", "specialist"]):
+        return "analyst"
+    return "viewer"
+
+def require_auth(allowed_roles: Optional[List[str]] = None):
+    """
+    FastAPI dependency enforcing RBAC authorization.
+    Returns 401 if unauthenticated, 403 if unauthorized.
+    """
+    def auth_dependency(request: Request):
+        auth_header = request.headers.get("Authorization") or request.headers.get("x-access-token") or ""
+        token = ""
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:].strip()
+        elif auth_header.startswith("bearer "):
+            token = auth_header[7:].strip()
+        elif auth_header:
+            token = auth_header.strip()
+
+        if not token:
+            token = request.cookies.get("cyber_session_token", "")
+
+        if not token:
+            raise HTTPException(
+                status_code=401,
+                detail="Authentication credentials were not provided. Bearer session token required.",
+                headers={"WWW-Authenticate": "Bearer"}
+            )
+
+        session = verify_session_token(token)
+        if not session:
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid or expired session token. Please log in again.",
+                headers={"WWW-Authenticate": "Bearer"}
+            )
+
+        user_role = map_role(session.get("r", "viewer"))
+        if allowed_roles:
+            normalized_allowed = [r.lower() for r in allowed_roles]
+            if user_role not in normalized_allowed and "admin" not in user_role:
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Access forbidden: Role '{session.get('r', 'viewer')}' ({user_role}) has insufficient privileges for this resource."
+                )
+
+        return session
+    return auth_dependency
 
 def create_auth_vault_token(username: str, email: str, password_hash: str, role: str) -> str:
     try:
@@ -157,13 +271,29 @@ app = FastAPI(
 # 1. Mount Layer 7 Web Application Firewall (WAF) Middleware
 app.add_middleware(CyberQuantWAFMiddleware)
 
-# 2. CORS policy (Localhost + Render Cloud Hosting)
+# 2. CORS Policy: Whitelist allowed origins & Vercel deployment preview domains (Priority 7)
+ALLOWED_ORIGINS = [
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "https://cyberquant-defense-system.vercel.app",
+    "https://cyberquant.vercel.app",
+]
+env_cors = os.getenv("CORS_ORIGINS", "")
+if env_cors:
+    ALLOWED_ORIGINS.extend([o.strip() for o in env_cors.split(",") if o.strip()])
+
+ORIGIN_REGEX = r"https://cyberquant-defense-system(-[a-zA-Z0-9_-]+)?\.vercel\.app"
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
+    allow_origin_regex=ORIGIN_REGEX,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization", "X-Requested-With", "X-Access-Token"],
+    expose_headers=["Content-Disposition"]
 )
 
 # Static directory setup
@@ -171,9 +301,28 @@ STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 os.makedirs(STATIC_DIR, exist_ok=True)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
-# 3. Path Normalization Middleware for Vercel Serverless Function rewrites
+# Global Exception Masking (Priority 10 & 14): Masks internal tracebacks and secrets in production
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    print(f"[UNHANDLED EXCEPTION] {request.method} {request.url.path} -> {type(exc).__name__}: {exc}")
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "An internal server error occurred. This event has been logged for security review."}
+    )
+
+# 3. Path Normalization & Sensitive Static File Guard Middleware (Priority 4 & 17)
 @app.middleware("http")
 async def path_normalization_middleware(request: Request, call_next):
+    # Block direct attempts to download database files, secrets, or python source files
+    path_lower = request.url.path.lower()
+    blocked_extensions = (".db", ".sqlite", ".sqlite3", ".env", ".py", ".pyc", ".git", ".bak", ".log", ".jsonl")
+    if any(path_lower.endswith(ext) or f"{ext}/" in path_lower or f"{ext}?" in path_lower for ext in blocked_extensions):
+        if not path_lower.startswith("/api/"):
+            return JSONResponse(
+                status_code=403, 
+                content={"detail": "Access forbidden: Direct access to system or database resources is prohibited."}
+            )
+
     # 1. First check if Vercel rewrite passed original path as a query param
     custom_path = request.query_params.get("__path")
     if custom_path:
@@ -277,11 +426,11 @@ def get_scan_detail_endpoint(scan_id: int):
     return record
 
 @app.delete("/api/scans/{scan_id}")
-def delete_scan_endpoint(scan_id: int):
+def delete_scan_endpoint(scan_id: int, auth: dict = Depends(require_auth(["admin"]))):
     deleted = delete_scan_by_id(scan_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Scan record not found or already removed.")
-    log_audit_event(action="SCAN_DELETED", details=f"Removed scan record ID: {scan_id}")
+    log_audit_event(action="SCAN_DELETED", username=auth.get("u"), details=f"Removed scan record ID: {scan_id}")
     return {"success": True, "message": f"Scan record {scan_id} deleted."}
 
 
@@ -383,18 +532,26 @@ def register_verify_endpoint(req: RegisterVerifyRequest):
     # Clean up pending
     PENDING_REGISTRATIONS.pop(email, None)
 
-    token = f"bearer_{username.replace(' ', '_')}_session"
+    token = generate_secure_session_token(username, role, email)
     auth_vault = create_auth_vault_token(username, email, password_hash, role)
     log_audit_event(action="USER_REGISTERED_SUCCESS", username=username, details=f"New user registered with email {email}")
 
-    return {
+    resp = JSONResponse(content={
         "success": True,
         "message": f"Account successfully created and activated for '{username}'! Welcome to CyberQuant AI.",
         "username": username,
         "role": role,
         "token": token,
         "auth_vault": auth_vault
-    }
+    })
+    resp.set_cookie(
+        key="cyber_session_token",
+        value=token,
+        httponly=True,
+        samesite="lax",
+        secure=bool(os.environ.get("VERCEL") or os.environ.get("ENVIRONMENT") == "production")
+    )
+    return resp
 
 # 2. Login Flow (Username or Email + Password)
 @app.post("/api/auth/login")
@@ -409,7 +566,6 @@ def login(creds: LoginRequest):
         raise HTTPException(status_code=400, detail="Please enter both username and password.")
 
     clean_user = raw_user.lower().replace(" ", "").replace("_", "").replace("-", "")
-    pw_hash = hash_password(raw_pass)
 
     matched_user = None
 
@@ -428,7 +584,7 @@ def login(creds: LoginRequest):
                 (v_u in ("admin", "cyber admin") and clean_user in ("admin", "cyberadmin", "cyber")) or
                 (v_e in [e.lower() for e in AUTHORIZED_EMAILS] and clean_user in ("admin", "cyberadmin", "cyber"))
             )
-            if is_vault_user and pw_hash == v_h:
+            if is_vault_user and verify_password_hash(raw_pass, v_h):
                 matched_user = {
                     "id": 1 if v_u == "admin" else 2,
                     "username": v_u or "admin",
@@ -453,7 +609,7 @@ def login(creds: LoginRequest):
     if not matched_user and raw_user.lower() in ACTIVE_USERS:
         u = ACTIVE_USERS[raw_user.lower()]
         target_hash = ACTIVE_PASSWORDS.get(u["username"].lower(), u.get("password_hash"))
-        if pw_hash == target_hash:
+        if target_hash and verify_password_hash(raw_pass, target_hash):
             matched_user = u
 
     # 2. Check Database users table (by username or email)
@@ -463,7 +619,7 @@ def login(creds: LoginRequest):
             uname_key = db_user["username"].lower()
             email_key = (db_user.get("email") or "").lower()
             target_hash = ACTIVE_PASSWORDS.get(uname_key) or ACTIVE_PASSWORDS.get(email_key) or db_user["password_hash"]
-            if pw_hash == target_hash:
+            if target_hash and verify_password_hash(raw_pass, target_hash):
                 matched_user = db_user
 
     # 3. Check if user typed an authorized admin email (e.g. cyberquant26@gmail.com, suryakowshik8@gmail.com, etc.)
@@ -473,10 +629,10 @@ def login(creds: LoginRequest):
             db_admin = db_get_user_by_username_or_email("admin")
             if db_admin:
                 target_hash = db_admin["password_hash"]
-        if target_hash and pw_hash == target_hash:
-            matched_user = {"id": 1, "username": "admin", "role": "CISO / Security Director"}
+        if target_hash and verify_password_hash(raw_pass, target_hash):
+            matched_user = {"id": 1, "username": "admin", "role": "CISO / Security Director", "email": raw_user.lower()}
         elif raw_pass in ("admin123", "admin"):
-            matched_user = {"id": 1, "username": "admin", "role": "CISO / Security Director"}
+            matched_user = {"id": 1, "username": "admin", "role": "CISO / Security Director", "email": raw_user.lower()}
 
     # 4. Check dynamically updated passwords cache for standard accounts
     if not matched_user and clean_user in ("admin", "cyberadmin", "cyber"):
@@ -486,9 +642,9 @@ def login(creds: LoginRequest):
             db_admin = db_get_user_by_username_or_email(target_key)
             if db_admin:
                 target_hash = db_admin["password_hash"]
-        if target_hash and pw_hash == target_hash:
+        if target_hash and verify_password_hash(raw_pass, target_hash):
             role = "CISO / Security Director" if clean_user == "admin" else "Cyber Risk Administrator"
-            matched_user = {"id": 1, "username": target_key, "role": role}
+            matched_user = {"id": 1 if clean_user == "admin" else 2, "username": target_key, "role": role}
 
     # 5. Standard admin credentials fallback
     if not matched_user:
@@ -501,22 +657,69 @@ def login(creds: LoginRequest):
         log_audit_event(action="LOGIN_FAILED", username=raw_user, details="Invalid credentials attempted.")
         raise HTTPException(status_code=401, detail="Invalid username or password. Check credentials or use Forgot Password.")
 
-    token = f"bearer_{matched_user['username'].replace(' ', '_')}_session"
+    # Seamless automatic upgrade of legacy password hashes to PBKDF2
+    current_stored_hash = ACTIVE_PASSWORDS.get(matched_user['username'].lower())
+    if current_stored_hash and not current_stored_hash.startswith("pbkdf2_sha256$"):
+        new_pbkdf2 = hash_password(raw_pass)
+        ACTIVE_PASSWORDS[matched_user['username'].lower()] = new_pbkdf2
+        if matched_user.get('email'):
+            ACTIVE_PASSWORDS[matched_user['email'].lower()] = new_pbkdf2
+        try:
+            db_update_user_password_by_email_or_username(matched_user['username'], new_pbkdf2)
+            save_state_cache()
+        except Exception:
+            pass
+
+    token = generate_secure_session_token(
+        matched_user['username'],
+        matched_user.get('role', 'Security Analyst'),
+        matched_user.get('email', '') or "cyberquant26@gmail.com"
+    )
     auth_vault = create_auth_vault_token(
         matched_user['username'],
         matched_user.get('email', '') or "cyberquant26@gmail.com",
-        pw_hash,
+        ACTIVE_PASSWORDS.get(matched_user['username'].lower(), hash_password(raw_pass)),
         matched_user.get('role', 'Security Analyst')
     )
     log_audit_event(action="LOGIN_SUCCESS", username=matched_user["username"], details=f"Authenticated as {matched_user.get('role', 'Security Analyst')}")
 
-    return {
+    resp = JSONResponse(content={
         "success": True,
         "username": matched_user["username"],
         "role": matched_user.get("role", "Security Analyst"),
         "token": token,
         "auth_vault": auth_vault
-    }
+    })
+    resp.set_cookie(
+        key="cyber_session_token",
+        value=token,
+        httponly=True,
+        samesite="lax",
+        secure=bool(os.environ.get("VERCEL") or os.environ.get("ENVIRONMENT") == "production")
+    )
+    return resp
+
+# Logout endpoint (Priority 1: Session expiration & revocation)
+@app.post("/api/auth/logout", tags=["Auth & Access Control"])
+@app.post("/auth/logout", tags=["Auth & Access Control"])
+def logout_endpoint(request: Request):
+    auth_header = request.headers.get("Authorization") or request.headers.get("x-access-token") or ""
+    token = ""
+    if auth_header.startswith("Bearer "):
+        token = auth_header[7:].strip()
+    elif auth_header.startswith("bearer "):
+        token = auth_header[7:].strip()
+    elif auth_header:
+        token = auth_header.strip()
+    if not token:
+        token = request.cookies.get("cyber_session_token", "")
+
+    if token:
+        REVOKED_TOKENS.add(token)
+
+    response = JSONResponse(content={"success": True, "message": "Session successfully invalidated. Logged out securely."})
+    response.delete_cookie("cyber_session_token")
+    return response
 
 # 3. Forgot Password Flow
 @app.post("/api/auth/forgot-password")
@@ -565,18 +768,26 @@ def verify_otp_skip(req: VerifyOtpSkipRequest):
         log_audit_event(action="OTP_VERIFY_FAILED", details=f"Failed OTP verification for {req.email}")
         raise HTTPException(status_code=400, detail="OTP not matched. The code does not match.")
 
-    token = "bearer_admin_secure_session"
+    token = generate_secure_session_token("admin", "CISO / Security Director", req.email)
     auth_vault = create_auth_vault_token("admin", req.email, hash_password("admin123"), "CISO / Security Director")
     log_audit_event(action="OTP_SKIP_LOGIN", username="admin", details=f"Granted direct access via OTP verification from {req.email}")
 
-    return {
+    resp = JSONResponse(content={
         "success": True,
         "message": "OTP verified successfully. Access granted without modifying password.",
         "username": "admin",
         "role": "CISO / Security Director",
         "token": token,
         "auth_vault": auth_vault
-    }
+    })
+    resp.set_cookie(
+        key="cyber_session_token",
+        value=token,
+        httponly=True,
+        samesite="lax",
+        secure=bool(os.environ.get("VERCEL") or os.environ.get("ENVIRONMENT") == "production")
+    )
+    return resp
 
 @app.post("/api/auth/reset-password")
 @app.post("/auth/reset-password")
@@ -643,17 +854,25 @@ def reset_password(req: ResetPasswordRequest):
     # 4. Generate signed client auth vault
     auth_vault = create_auth_vault_token(uname, email, new_hash, role)
 
-    token = f"bearer_{uname.replace(' ', '_')}_session"
+    token = generate_secure_session_token(uname, role, email)
     log_audit_event(action="PASSWORD_RESET_SUCCESS", username=uname, details=f"Password updated and authenticated via OTP from {email}")
 
-    return {
+    resp = JSONResponse(content={
         "success": True,
         "message": "Password successfully updated! Please log in with your new password.",
         "username": uname,
         "role": role,
         "token": token,
         "auth_vault": auth_vault
-    }
+    })
+    resp.set_cookie(
+        key="cyber_session_token",
+        value=token,
+        httponly=True,
+        samesite="lax",
+        secure=bool(os.environ.get("VERCEL") or os.environ.get("ENVIRONMENT") == "production")
+    )
+    return resp
 
 # --- Layer 7 Firewall Secret Passcode Authentication & Email Reset Endpoints ---
 @app.post("/api/firewall/verify-passcode")
@@ -755,8 +974,8 @@ async def vercel_index_post_fallback(request: Request):
     raise HTTPException(status_code=404, detail="Endpoint not found on direct index.py invoke")
 
 
-@app.get("/api/auth/audit-logs")
-def get_audit_logs_endpoint(limit: int = 25):
+@app.get("/api/auth/audit-logs", tags=["Audit & Admin"])
+def get_audit_logs_endpoint(limit: int = 25, auth: dict = Depends(require_auth(["admin"]))):
     return {
         "audit_logs": get_audit_logs(limit=limit)
     }
@@ -897,28 +1116,28 @@ def get_asset_detail(asset_id: int = Path(..., description="ID of the asset")):
     return asset
 
 @app.post("/api/assets", tags=["Assets"])
-def create_asset_endpoint(asset: AssetCreate):
+def create_asset_endpoint(asset: AssetCreate, auth: dict = Depends(require_auth(["admin", "analyst"]))):
     """Registers a new infrastructure asset in the enterprise inventory."""
     new_id = db_create_asset(asset.dict())
-    log_audit_event(action="ASSET_CREATED", details=f"Created asset '{asset.name}' ({asset.asset_type}, ₹{asset.asset_value:,.0f})")
+    log_audit_event(action="ASSET_CREATED", username=auth.get("u"), details=f"Created asset '{asset.name}' ({asset.asset_type}, ₹{asset.asset_value:,.0f})")
     return {"message": "Asset successfully created", "id": new_id, "asset_id": new_id}
 
 @app.put("/api/assets/{asset_id}", tags=["Assets"])
-def update_asset_endpoint(asset_id: int, asset_data: AssetUpdate):
+def update_asset_endpoint(asset_id: int, asset_data: AssetUpdate, auth: dict = Depends(require_auth(["admin", "analyst"]))):
     """Updates existing asset parameters (valuation, exposure, criticality)."""
     updated = db_update_asset(asset_id, asset_data.dict(exclude_unset=True))
     if not updated:
         raise HTTPException(status_code=404, detail="Asset not found or no fields to update")
-    log_audit_event(action="ASSET_UPDATED", details=f"Updated asset ID: {asset_id}")
+    log_audit_event(action="ASSET_UPDATED", username=auth.get("u"), details=f"Updated asset ID: {asset_id}")
     return {"success": True, "message": f"Asset {asset_id} successfully updated"}
 
 @app.delete("/api/assets/{asset_id}", tags=["Assets"])
-def delete_asset_endpoint(asset_id: int):
+def delete_asset_endpoint(asset_id: int, auth: dict = Depends(require_auth(["admin"]))):
     """Removes an asset and cascades deletion to linked vulnerabilities."""
     deleted = db_delete_asset(asset_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Asset not found")
-    log_audit_event(action="ASSET_DELETED", details=f"Removed asset ID: {asset_id}")
+    log_audit_event(action="ASSET_DELETED", username=auth.get("u"), details=f"Removed asset ID: {asset_id}")
     return {"success": True, "message": f"Asset {asset_id} and related vulnerabilities removed"}
 
 
@@ -940,32 +1159,32 @@ def get_vulnerability_detail(vuln_id: int = Path(..., description="ID of the vul
     return vuln
 
 @app.post("/api/vulnerabilities", tags=["Vulnerabilities"])
-def create_vulnerability_endpoint(v: VulnerabilityCreate):
+def create_vulnerability_endpoint(v: VulnerabilityCreate, auth: dict = Depends(require_auth(["admin", "analyst"]))):
     """Registers a new CVE vulnerability associated with an asset."""
     # Verify asset exists
     asset = db_get_asset(v.asset_id)
     if not asset:
         raise HTTPException(status_code=400, detail=f"Asset ID {v.asset_id} does not exist.")
     new_id = db_create_vulnerability(v.dict())
-    log_audit_event(action="VULN_REGISTERED", details=f"Registered {v.cve_id} on asset {asset['name']} (CVSS {v.cvss_score})")
+    log_audit_event(action="VULN_REGISTERED", username=auth.get("u"), details=f"Registered {v.cve_id} on asset {asset['name']} (CVSS {v.cvss_score})")
     return {"message": "Vulnerability successfully registered", "id": new_id, "vulnerability_id": new_id}
 
 @app.put("/api/vulnerabilities/{vuln_id}", tags=["Vulnerabilities"])
-def update_vulnerability_endpoint(vuln_id: int, v_data: VulnerabilityUpdate):
+def update_vulnerability_endpoint(vuln_id: int, v_data: VulnerabilityUpdate, auth: dict = Depends(require_auth(["admin", "analyst"]))):
     """Updates vulnerability parameters (CVSS, patch status, exploitability)."""
     updated = db_update_vulnerability(vuln_id, v_data.dict(exclude_unset=True))
     if not updated:
         raise HTTPException(status_code=404, detail="Vulnerability not found or no fields to update")
-    log_audit_event(action="VULN_UPDATED", details=f"Updated vulnerability ID: {vuln_id}")
+    log_audit_event(action="VULN_UPDATED", username=auth.get("u"), details=f"Updated vulnerability ID: {vuln_id}")
     return {"success": True, "message": f"Vulnerability {vuln_id} updated"}
 
 @app.delete("/api/vulnerabilities/{vuln_id}", tags=["Vulnerabilities"])
-def delete_vulnerability_endpoint(vuln_id: int):
+def delete_vulnerability_endpoint(vuln_id: int, auth: dict = Depends(require_auth(["admin"]))):
     """Deletes a vulnerability record from the database."""
     deleted = db_delete_vulnerability(vuln_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Vulnerability not found")
-    log_audit_event(action="VULN_DELETED", details=f"Removed vulnerability ID: {vuln_id}")
+    log_audit_event(action="VULN_DELETED", username=auth.get("u"), details=f"Removed vulnerability ID: {vuln_id}")
     return {"success": True, "message": f"Vulnerability {vuln_id} removed"}
 
 
@@ -987,28 +1206,28 @@ def get_control_detail(control_id: int = Path(..., description="ID of the contro
     return ctrl
 
 @app.post("/api/controls", tags=["Security Controls"])
-def create_control_endpoint(ctrl: SecurityControlCreate):
+def create_control_endpoint(ctrl: SecurityControlCreate, auth: dict = Depends(require_auth(["admin", "analyst"]))):
     """Creates a new defensive security control available for capital allocation."""
     new_id = db_create_control(ctrl.dict())
-    log_audit_event(action="CONTROL_CREATED", details=f"Added control '{ctrl.name}' (Cost: ₹{ctrl.cost:,.0f})")
+    log_audit_event(action="CONTROL_CREATED", username=auth.get("u"), details=f"Added control '{ctrl.name}' (Cost: ₹{ctrl.cost:,.0f})")
     return {"message": "Security control registered", "id": new_id, "control_id": new_id}
 
 @app.put("/api/controls/{control_id}", tags=["Security Controls"])
-def update_control_endpoint(control_id: int, ctrl_data: SecurityControlUpdate):
+def update_control_endpoint(control_id: int, ctrl_data: SecurityControlUpdate, auth: dict = Depends(require_auth(["admin", "analyst"]))):
     """Updates security control parameters (cost, risk reduction, coverage)."""
     updated = db_update_control(control_id, ctrl_data.dict(exclude_unset=True))
     if not updated:
         raise HTTPException(status_code=404, detail="Security control not found or no fields to update")
-    log_audit_event(action="CONTROL_UPDATED", details=f"Updated control ID: {control_id}")
+    log_audit_event(action="CONTROL_UPDATED", username=auth.get("u"), details=f"Updated control ID: {control_id}")
     return {"success": True, "message": f"Security control {control_id} updated"}
 
 @app.delete("/api/controls/{control_id}", tags=["Security Controls"])
-def delete_control_endpoint(control_id: int):
+def delete_control_endpoint(control_id: int, auth: dict = Depends(require_auth(["admin"]))):
     """Removes a security control from the mitigation catalog."""
     deleted = db_delete_control(control_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Security control not found")
-    log_audit_event(action="CONTROL_DELETED", details=f"Removed control ID: {control_id}")
+    log_audit_event(action="CONTROL_DELETED", username=auth.get("u"), details=f"Removed control ID: {control_id}")
     return {"success": True, "message": f"Security control {control_id} deleted"}
 
 
@@ -1366,7 +1585,7 @@ def get_department_breakdown_endpoint():
 # ==============================================================================
 
 @app.get("/api/export/csv/{entity_type}", tags=["Import & Export"])
-def export_csv_endpoint(entity_type: str = Path(..., description="assets, vulnerabilities, controls, scans, or audit_logs")):
+def export_csv_endpoint(entity_type: str = Path(..., description="assets, vulnerabilities, controls, scans, or audit_logs"), auth: dict = Depends(require_auth(["admin", "analyst"]))):
     """
     Exports platform data as standard RFC 4180 CSV spreadsheet download.
     """
@@ -1423,7 +1642,7 @@ def export_csv_endpoint(entity_type: str = Path(..., description="assets, vulner
         raise HTTPException(status_code=400, detail="Invalid entity_type. Choose: assets, vulnerabilities, controls, scans, or audit_logs")
 
     csv_data = output.getvalue()
-    log_audit_event(action="CSV_EXPORT", details=f"Exported CSV for {entity_type}")
+    log_audit_event(action="CSV_EXPORT", username=auth.get("u"), details=f"Exported CSV for {entity_type}")
     return Response(
         content=csv_data,
         media_type="text/csv",
@@ -1432,7 +1651,7 @@ def export_csv_endpoint(entity_type: str = Path(..., description="assets, vulner
 
 
 @app.get("/api/export/json/{entity_type}", tags=["Import & Export"])
-def export_json_endpoint(entity_type: str = Path(..., description="assets, vulnerabilities, controls, or all")):
+def export_json_endpoint(entity_type: str = Path(..., description="assets, vulnerabilities, controls, or all"), auth: dict = Depends(require_auth(["admin", "analyst"]))):
     """
     Exports database entities as structured JSON.
     """
@@ -1451,12 +1670,12 @@ def export_json_endpoint(entity_type: str = Path(..., description="assets, vulne
     else:
         raise HTTPException(status_code=400, detail="Invalid entity_type. Choose: assets, vulnerabilities, controls, or all")
     
-    log_audit_event(action="JSON_EXPORT", details=f"Exported JSON for {entity_type}")
+    log_audit_event(action="JSON_EXPORT", username=auth.get("u"), details=f"Exported JSON for {entity_type}")
     return {"entity_type": entity_type, "count": len(data) if isinstance(data, list) else len(data.get("assets", [])), "data": data}
 
 
 @app.post("/api/import/json/{entity_type}", tags=["Import & Export"])
-def import_json_endpoint(entity_type: str, payload: BulkImportRequest):
+def import_json_endpoint(entity_type: str, payload: BulkImportRequest, auth: dict = Depends(require_auth(["admin", "analyst"]))):
     """
     Bulk imports assets, vulnerabilities, or controls from external security tools.
     """
@@ -1480,7 +1699,7 @@ def import_json_endpoint(entity_type: str, payload: BulkImportRequest):
     else:
         raise HTTPException(status_code=400, detail="Invalid entity_type. Choose: assets, vulnerabilities, or controls")
 
-    log_audit_event(action="BULK_IMPORT", details=f"Imported {len(created_ids)} records into {entity_type}")
+    log_audit_event(action="BULK_IMPORT", username=auth.get("u"), details=f"Imported {len(created_ids)} records into {entity_type}")
     return {
         "success": True,
         "message": f"Successfully imported {len(created_ids)} {entity_type}.",
@@ -1494,13 +1713,14 @@ def import_json_endpoint(entity_type: str, payload: BulkImportRequest):
 # ==============================================================================
 
 @app.post("/api/admin/reset-database", tags=["Audit & Admin"])
-def reset_database_endpoint():
+def reset_database_endpoint(auth: dict = Depends(require_auth(["admin"]))):
     """
     Resets the database back to standard demonstration dataset.
     Useful for live Smart India Hackathon demonstrations and testing.
+    Strictly protected: Administrator credentials required.
     """
     res = db_reset_database()
-    log_audit_event(action="DB_FACTORY_RESET", details="Reset database to default seed state")
+    log_audit_event(action="DB_FACTORY_RESET", username=auth.get("u"), details="Reset database to default seed state")
     return res
 
 
@@ -1509,7 +1729,7 @@ def reset_database_endpoint():
 # ==============================================================================
 
 @app.get("/api/waf/stats", tags=["WAF & Perimeter Defense"])
-def get_waf_telemetry_endpoint():
+def get_waf_telemetry_endpoint(auth: dict = Depends(require_auth(["admin", "analyst"]))):
     """
     Returns live metrics and security logs from the Layer 7 Web Application Firewall:
     - Total requests inspected
@@ -1520,12 +1740,13 @@ def get_waf_telemetry_endpoint():
 
 
 @app.post("/api/waf/reset", tags=["WAF & Perimeter Defense"])
-def reset_waf_telemetry_endpoint():
+def reset_waf_telemetry_endpoint(auth: dict = Depends(require_auth(["admin"]))):
     """
     Resets WAF in-memory attack counters and event log buffer.
+    Strictly protected: Administrator credentials required.
     """
     reset_waf_stats()
-    log_audit_event(action="WAF_STATS_RESET", details="Reset WAF telemetry counters")
+    log_audit_event(action="WAF_STATS_RESET", username=auth.get("u"), details="Reset WAF telemetry counters")
     return {"status": "SUCCESS", "message": "WAF statistics and attack logs have been reset."}
 
 

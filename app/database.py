@@ -18,8 +18,35 @@ else:
     DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'cyber_risk.db')
 
 
-def hash_password(password: str) -> str:
-    return hashlib.sha256(password.encode('utf-8')).hexdigest()
+import secrets
+import hmac
+
+def hash_password(password: str, salt: str = None) -> str:
+    """
+    Cryptographically secure password hashing using PBKDF2-HMAC-SHA256 with 100,000 iterations and salt.
+    """
+    if not password:
+        return ""
+    if not salt:
+        salt = secrets.token_hex(16)
+    derived = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt.encode('utf-8'), 100000)
+    return f"pbkdf2_sha256$100000${salt}${derived.hex()}"
+
+def verify_password_hash(plain_password: str, stored_hash: str) -> bool:
+    """
+    Verifies a password against PBKDF2-HMAC-SHA256 hash or legacy SHA-256 with constant-time comparison.
+    """
+    if not plain_password or not stored_hash:
+        return False
+    if stored_hash.startswith("pbkdf2_sha256$"):
+        parts = stored_hash.split("$")
+        if len(parts) == 4:
+            _, iters, salt, hash_val = parts
+            derived = hashlib.pbkdf2_hmac('sha256', plain_password.encode('utf-8'), salt.encode('utf-8'), int(iters))
+            return hmac.compare_digest(derived.hex(), hash_val)
+    # Legacy unsalted SHA-256 compatibility
+    legacy_hash = hashlib.sha256(plain_password.encode('utf-8')).hexdigest()
+    return hmac.compare_digest(legacy_hash, stored_hash)
 
 def get_db_connection():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)

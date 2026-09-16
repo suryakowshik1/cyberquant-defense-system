@@ -3831,6 +3831,10 @@
 
     // Robust API Fetcher with Multi-layer Vercel Routing Fallbacks
     async function apiFetch(url, options = {}) {
+      options.headers = options.headers || {};
+      if (currentAuthToken && !options.headers['Authorization']) {
+        options.headers['Authorization'] = `Bearer ${currentAuthToken}`;
+      }
       let resp = null;
       try {
         resp = await fetch(url, options);
@@ -4088,6 +4092,14 @@
     }
 
     function performLogout() {
+      try {
+        if (currentAuthToken) {
+          fetch('/api/auth/logout', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${currentAuthToken}` }
+          }).catch(() => {});
+        }
+      } catch (e) {}
       localStorage.removeItem('cyber_admin_token');
       sessionStorage.removeItem('cyber_admin_token');
       sessionStorage.removeItem('active_view');
@@ -5804,7 +5816,8 @@ async def add_security_headers(request: Request, call_next):
 
     async function loadDashboard() {
       try {
-        const res = await fetch('/api/dashboard');
+        const headers = currentAuthToken ? { 'Authorization': `Bearer ${currentAuthToken}` } : {};
+        const res = await fetch('/api/dashboard', { headers });
         globalDashboard = await res.json();
         renderKPIs(globalDashboard);
         renderTables(globalDashboard);
@@ -6164,9 +6177,11 @@ async def add_security_headers(request: Request, call_next):
     async function runOptimization() {
       const budget = parseFloat(document.getElementById('budget-range').value);
       try {
+        const headers = { 'Content-Type': 'application/json' };
+        if (currentAuthToken) headers['Authorization'] = `Bearer ${currentAuthToken}`;
         const res = await fetch('/api/optimize', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers,
           body: JSON.stringify({ budget })
         });
         globalOptimization = await res.json();
@@ -6253,9 +6268,11 @@ async def add_security_headers(request: Request, call_next):
       const enabledIds = globalOptimization ? globalOptimization.selected_controls.map(c => c.id) : [];
 
       try {
+        const headers = { 'Content-Type': 'application/json' };
+        if (currentAuthToken) headers['Authorization'] = `Bearer ${currentAuthToken}`;
         const res = await fetch('/api/simulate', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers,
           body: JSON.stringify({
             threat_multiplier: threat,
             asset_value_multiplier: asset,
@@ -6351,7 +6368,8 @@ async def add_security_headers(request: Request, call_next):
       const budget = parseFloat(document.getElementById('budget-range').value) || 500000;
       const entity = currentSelectedEntityName || 'SecureTech Global Industries';
       try {
-        const res = await fetch(`/api/report?budget=${budget}&organization=${encodeURIComponent(entity)}`);
+        const headers = currentAuthToken ? { 'Authorization': `Bearer ${currentAuthToken}` } : {};
+        const res = await fetch(`/api/report?budget=${budget}&organization=${encodeURIComponent(entity)}`, { headers });
         const r = await res.json();
         cached15SectionReportData = r;
         
@@ -12987,7 +13005,8 @@ async def add_security_headers(request: Request, call_next):
           try {
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 2000);
-            const res = await fetch(`/api/report?budget=${budget}&organization=${encodeURIComponent(entity)}`, { signal: controller.signal });
+            const headers = currentAuthToken ? { 'Authorization': `Bearer ${currentAuthToken}` } : {};
+            const res = await fetch(`/api/report?budget=${budget}&organization=${encodeURIComponent(entity)}`, { headers, signal: controller.signal });
             clearTimeout(timeoutId);
             if (res.ok) {
               reportData = await res.json();
@@ -13010,9 +13029,11 @@ async def add_security_headers(request: Request, call_next):
           try {
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 2000);
+            const optHeaders = { 'Content-Type': 'application/json' };
+            if (currentAuthToken) optHeaders['Authorization'] = `Bearer ${currentAuthToken}`;
             const resOpt = await fetch('/api/optimize', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: optHeaders,
               body: JSON.stringify({ budget }),
               signal: controller.signal
             });

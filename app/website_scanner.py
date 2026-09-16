@@ -16,10 +16,12 @@ import ssl
 import socket
 import time
 import urllib.request
+import urllib.error
 import re
+import ipaddress
 from urllib.parse import urlparse, urljoin
 from datetime import datetime
-from typing import Dict, Any, List, Set, Optional
+from typing import Dict, Any, List, Set, Optional, Tuple
 
 # =============================================================================
 # BUILT-IN CVE & EPSS EXPLOIT INTELLIGENCE DATABASE
@@ -176,10 +178,104 @@ KNOWN_CVE_DATABASE = {
     ]
 }
 
+# =============================================================================
+# SSRF (SERVER-SIDE REQUEST FORGERY) DEFENSE ENGINE
+# =============================================================================
+
+def is_ip_private_or_restricted(ip_str: str) -> bool:
+    """Checks if an IP address belongs to loopback, private, link-local, multicast, or cloud metadata."""
+    try:
+        ip = ipaddress.ip_address(ip_str.strip())
+        if (
+            ip.is_loopback or
+            ip.is_private or
+            ip.is_link_local or
+            ip.is_reserved or
+            ip.is_multicast or
+            ip.is_unspecified
+        ):
+            return True
+        # Cloud metadata service protection (AWS, GCP, Azure, Alibaba)
+        if str(ip) in ("169.254.169.254", "100.100.100.200"):
+            return True
+        return False
+    except ValueError:
+        return True
+
+def validate_ssrf_safe_url(target_url: str) -> Tuple[bool, str]:
+    """
+    Strict SSRF validation:
+    - Schemes permitted: http, https only
+    - Rejects credentials embedded in URL
+    - Blocks localhost, loopback, private IP ranges (10.x, 172.16-31.x, 192.168.x)
+    - Blocks cloud metadata endpoints and internal DNS suffixes
+    - Resolves DNS and validates all returned IP addresses
+    """
+    try:
+        parsed = urlparse(target_url)
+        if parsed.scheme not in ('http', 'https'):
+            return False, f"Unsupported scheme '{parsed.scheme}'. Only HTTP and HTTPS are permitted."
+
+        if parsed.username or parsed.password:
+            return False, "URLs with embedded credentials are not permitted."
+
+        hostname = parsed.hostname
+        if not hostname:
+            return False, "Target URL is missing a valid hostname."
+
+        lower_host = hostname.lower().strip()
+
+        # Prohibited hostnames & cloud metadata services
+        if lower_host in ('localhost', '0.0.0.0', '127.0.0.1', '::1', '[::1]', 'metadata.google.internal', 'instance-data'):
+            return False, f"Access to internal or loopback destination '{hostname}' is strictly prohibited."
+
+        if any(lower_host.endswith(suffix) for suffix in ('.local', '.internal', '.lan', '.localdomain', '.home', '.corp', '.arpa')):
+            return False, f"Access to internal private domain '{hostname}' is prohibited."
+
+        # Port validation (restrict to standard web traffic)
+        port = parsed.port or (443 if parsed.scheme == 'https' else 80)
+        if port not in (80, 443, 8080, 8443):
+            return False, f"Target port {port} is restricted. Only standard web ports (80, 443, 8080, 8443) are allowed."
+
+        # Resolve DNS and check all IP records
+        try:
+            addr_info = socket.getaddrinfo(hostname, port, type=socket.SOCK_STREAM)
+            if not addr_info:
+                return False, f"Could not resolve hostname '{hostname}' via DNS."
+            for item in addr_info:
+                sockaddr = item[4]
+                ip_str = sockaddr[0]
+                if is_ip_private_or_restricted(ip_str):
+                    return False, f"SSRF Protection: Hostname '{hostname}' resolves to restricted private address {ip_str}."
+        except socket.gaierror as dns_err:
+            return False, f"DNS resolution failed for '{hostname}': {dns_err}"
+
+        return True, ""
+    except Exception as e:
+        return False, f"URL validation failed: {str(e)}"
+
+class SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Guards every HTTP redirect to prevent redirect-based SSRF into internal networks."""
+    def __init__(self, max_redirects: int = 3):
+        super().__init__()
+        self.max_redirects = max_redirects
+        self.redirect_count = 0
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        self.redirect_count += 1
+        if self.redirect_count > self.max_redirects:
+            raise urllib.error.HTTPError(newurl, 310, "Too many redirects", headers, fp)
+        is_safe, err_msg = validate_ssrf_safe_url(newurl)
+        if not is_safe:
+            raise urllib.error.HTTPError(newurl, 403, f"SSRF Protection: Redirect to restricted destination blocked ({err_msg})", headers, fp)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
 def scan_website_vulnerabilities(raw_url: str) -> Dict[str, Any]:
     """
     Executes a comprehensive, non-invasive defensive vulnerability audit of the target URL.
     Returns structured JSON with security score, grade, tech stack, CVE findings, and recommendations.
+    Enforces strict SSRF protection and resource limits.
     """
     target = raw_url.strip()
     if not target.startswith(('http://', 'https://')):
@@ -189,6 +285,11 @@ def scan_website_vulnerabilities(raw_url: str) -> Dict[str, Any]:
     hostname = parsed.hostname or target
     port = parsed.port or (443 if parsed.scheme == 'https' else 80)
     scheme = parsed.scheme
+
+    # PRIORITY 3: Strict SSRF Validation
+    is_safe, ssrf_err = validate_ssrf_safe_url(target)
+    if not is_safe:
+        return _error_response(target, hostname, f"SSRF Violation Blocked: {ssrf_err}")
 
     start_time = time.time()
     findings: List[Dict[str, Any]] = []
@@ -202,7 +303,7 @@ def scan_website_vulnerabilities(raw_url: str) -> Dict[str, Any]:
         "details": "Not evaluated"
     }
 
-    # 1. HTTP Request & Full Body Extraction
+    # 1. HTTP Request & Full Body Extraction (SSRF Safe Client)
     try:
         req = urllib.request.Request(
             target,
@@ -214,12 +315,18 @@ def scan_website_vulnerabilities(raw_url: str) -> Dict[str, Any]:
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
 
-        with urllib.request.urlopen(req, timeout=8.0, context=ctx if scheme == 'https' else None) as resp:
+        # Build opener with SafeRedirectHandler to re-verify every redirect destination
+        opener = urllib.request.build_opener(
+            urllib.request.HTTPSHandler(context=ctx) if scheme == 'https' else urllib.request.HTTPHandler(),
+            SafeRedirectHandler(max_redirects=3)
+        )
+
+        with opener.open(req, timeout=5.0) as resp:
             http_status = resp.status
             response_time_ms = round((time.time() - start_time) * 1000, 1)
             for k, v in resp.headers.items():
                 headers_dict[k.lower()] = v
-            # Read up to 512KB of HTML for tech fingerprinting & comment inspection
+            # Max 512KB response to prevent DoS via infinite stream
             raw_bytes = resp.read(524288)
             html_content = raw_bytes.decode('utf-8', errors='ignore')
     except urllib.error.HTTPError as e:
@@ -235,11 +342,19 @@ def scan_website_vulnerabilities(raw_url: str) -> Dict[str, Any]:
         if scheme == 'https':
             try:
                 fallback_target = target.replace('https://', 'http://', 1)
+                is_fallback_safe, fallback_ssrf_err = validate_ssrf_safe_url(fallback_target)
+                if not is_fallback_safe:
+                    return _error_response(target, hostname, f"SSRF Violation Blocked: {fallback_ssrf_err}")
+
                 req = urllib.request.Request(
                     fallback_target,
                     headers={'User-Agent': 'CyberQuant-Defensive-Scanner/2.0'}
                 )
-                with urllib.request.urlopen(req, timeout=6.0) as resp:
+                opener_fallback = urllib.request.build_opener(
+                    urllib.request.HTTPHandler(),
+                    SafeRedirectHandler(max_redirects=3)
+                )
+                with opener_fallback.open(req, timeout=5.0) as resp:
                     http_status = resp.status
                     response_time_ms = round((time.time() - start_time) * 1000, 1)
                     for k, v in resp.headers.items():

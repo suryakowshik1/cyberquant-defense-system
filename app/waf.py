@@ -167,11 +167,11 @@ class SlidingWindowRateLimiter:
         if now - self.last_cleanup > 300:
             self._cleanup(now)
 
-        is_auth = "/api/auth/" in path.lower()
+        is_sensitive = any(k in path.lower() for k in ("/api/auth/", "/auth/", "/firewall", "/scan-website"))
         window_duration = 60.0
 
-        if is_auth:
-            limit = 25
+        if is_sensitive:
+            limit = 20
             timestamps = self.auth_windows[client_ip]
         else:
             limit = 180
@@ -410,8 +410,19 @@ class CyberQuantWAFMiddleware(BaseHTTPMiddleware):
         response: Response = await call_next(request)
 
         # -------------------------------------------------------------
-        # 7. Apply Layer 7 HTTP Security Hardening Headers
+        # 7. Apply Layer 7 HTTP Security Hardening Headers (Priority 12)
         # -------------------------------------------------------------
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com https://unpkg.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; "
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; "
+            "font-src 'self' https://fonts.gstatic.com data:; "
+            "img-src 'self' data: https: blob:; "
+            "connect-src 'self' https: http:; "
+            "frame-ancestors 'self'; "
+            "object-src 'none'; "
+            "base-uri 'self';"
+        )
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "SAMEORIGIN"
         response.headers["X-XSS-Protection"] = "1; mode=block"

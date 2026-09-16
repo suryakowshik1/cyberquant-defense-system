@@ -9,3 +9,9 @@ Thumbs.db
 *.before_fixes
 *.original_backup
 .env
+data/*.db
+data/*.sqlite
+*.sqlite
+*.sqlite3
+*.log
+scratch/
