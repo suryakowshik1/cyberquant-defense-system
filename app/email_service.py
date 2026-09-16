@@ -197,12 +197,18 @@ def dispatch_otp_email(recipient_email: str, otp_code: str) -> dict:
         msg["To"] = recipient_email
         msg.attach(MIMEText(html_body, "html"))
 
-        with smtplib.SMTP(smtp_host, smtp_port, timeout=10) as server:
-            server.starttls()
-            server.login(smtp_user, smtp_pass)
-            server.sendmail(smtp_from, recipient_email, msg.as_string())
-
-        return {"sent": True, "mode": "smtp"}
+        try:
+            with smtplib.SMTP(smtp_host, smtp_port, timeout=8) as server:
+                server.starttls()
+                server.login(smtp_user, smtp_pass)
+                server.sendmail(smtp_from, recipient_email, msg.as_string())
+            return {"sent": True, "mode": "smtp_tls"}
+        except Exception as err_tls:
+            print(f"[SMTP TLS NOTICE] Port {smtp_port} failed ({err_tls}), attempting SSL port 465...")
+            with smtplib.SMTP_SSL(smtp_host, 465, timeout=8) as server_ssl:
+                server_ssl.login(smtp_user, smtp_pass)
+                server_ssl.sendmail(smtp_from, recipient_email, msg.as_string())
+            return {"sent": True, "mode": "smtp_ssl"}
     except Exception as e:
         print(f"[SMTP WARNING] Failed to deliver live email via SMTP: {e}")
         return {"sent": False, "mode": "simulated", "error": str(e)}
