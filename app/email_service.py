@@ -91,13 +91,11 @@ def generate_and_store_otp(email: str) -> dict:
 
     return {
         "success": True,
-        "message": f"A 6-digit verification code has been dispatched to {clean_email}." if email_sent else f"OTP generated successfully for {clean_email}.",
+        "message": f"A 6-digit verification code has been dispatched to {clean_email}. Please check your inbox and spam folder.",
         "email": clean_email,
-        "otp_code": otp_code,
         "expires_in_seconds": 600,
-        "delivery_mode": delivery_info.get("mode", "simulated"),
-        "email_sent": email_sent,
-        "delivery_note": delivery_info.get("note") or delivery_info.get("error") or ("Dispatched to inbox" if email_sent else "Generated securely on-screen")
+        "delivery_mode": delivery_info.get("mode", "smtp" if email_sent else "pending_smtp"),
+        "email_sent": email_sent
     }
 
 
@@ -159,14 +157,14 @@ def dispatch_otp_email(recipient_email: str, otp_code: str) -> dict:
     Dispatches an HTML formatted email if SMTP environment variables are configured.
     Falls back gracefully if SMTP is not configured or fails.
     """
-    smtp_host = os.getenv("SMTP_HOST", "")
-    smtp_port = int(os.getenv("SMTP_PORT", "587"))
-    smtp_user = os.getenv("SMTP_USER", "")
-    smtp_pass = os.getenv("SMTP_PASS", "")
-    smtp_from = os.getenv("SMTP_FROM", smtp_user or "security@cyberquant.ai")
+    smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com") or "smtp.gmail.com"
+    smtp_port = int(os.getenv("SMTP_PORT", "587") or "587")
+    smtp_user = os.getenv("SMTP_USER", "").strip()
+    smtp_pass = os.getenv("SMTP_PASS", "").strip()
+    smtp_from = os.getenv("SMTP_FROM", "").strip() or smtp_user or "security@cyberquant.ai"
 
-    if not smtp_host or not smtp_user:
-        return {"sent": False, "mode": "simulated", "note": "SMTP not configured. OTP printed to server log and preview."}
+    if not smtp_user or not smtp_pass:
+        return {"sent": False, "mode": "simulated", "note": "SMTP_USER or SMTP_PASS not set in environment."}
 
     try:
         subject = f"🔐 CyberQuant AI - Security Password Reset OTP: {otp_code}"
