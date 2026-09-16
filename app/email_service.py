@@ -1,7 +1,7 @@
 """
 CyberQuant AI - Multi-Factor Authentication & OTP Service
 Handles secure OTP generation, verification, and email dispatch for administrative password recovery.
-Authorized Administrators: pavansaikumar5616@gmail.com, suryakowshik8@gmail.com
+Authorized Administrator: cyberquant26@gmail.com
 """
 import os
 import time
@@ -32,11 +32,9 @@ def load_env_file():
 
 load_env_file()
 
+# STRICT SINGLE ADMIN EMAIL POLICY: Only cyberquant26@gmail.com is authorized
 AUTHORIZED_EMAILS = [
-    "pavansaikumar5616@gmail.com",
-    "suryakowshik8@gmail.com",
-    "cyberquant26@gmail.com",
-    "admin@cyberquant.local"
+    "cyberquant26@gmail.com"
 ]
 
 # Fast in-memory cache for OTPs to guarantee resilience across serverless container environments
@@ -223,7 +221,17 @@ def dispatch_firewall_reset_email(recipient_email: str, reset_link: str, otp_cod
     """
     Dispatches a dedicated HTML email with a direct one-click reset link and verification code
     for changing the Master Firewall Passcode.
+    STRICT POLICY: Master firewall reset emails can ONLY be sent to cyberquant26@gmail.com.
     """
+    target_clean = (recipient_email or "").strip().lower()
+    if target_clean != "cyberquant26@gmail.com":
+        print(f"[SECURITY POLICY BLOCKED] Attempted dispatch to unauthorized email: {target_clean}. Strictly restricted to cyberquant26@gmail.com.")
+        return {
+            "sent": False,
+            "mode": "blocked",
+            "error": "Security Policy: Master firewall reset authorization is strictly restricted to cyberquant26@gmail.com only."
+        }
+
     smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com") or "smtp.gmail.com"
     smtp_port = int(os.getenv("SMTP_PORT", "587") or "587")
     smtp_user = os.getenv("SMTP_USER", "cyberquant26@gmail.com").strip() or "cyberquant26@gmail.com"

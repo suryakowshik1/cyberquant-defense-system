@@ -595,7 +595,7 @@ def reset_password(req: ResetPasswordRequest):
         raise HTTPException(status_code=400, detail="OTP not matched. The code does not match.")
 
     new_hash = hash_password(new_pass)
-    is_admin = email in ("pavansaikumar5616@gmail.com", "suryakowshik8@gmail.com", "cyberquant26@gmail.com", "admin@cyberquant.local") or email in [e.lower() for e in AUTHORIZED_EMAILS]
+    is_admin = email.lower() == "cyberquant26@gmail.com" or email.lower() in [e.lower() for e in AUTHORIZED_EMAILS]
 
     # 1. Update in-memory runtime cache for this user/email
     if is_admin:
