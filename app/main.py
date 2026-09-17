@@ -37,6 +37,7 @@ from app.risk_engine import (
 )
 from app.optimizer import run_knapsack_optimization
 from app.website_scanner import scan_website_vulnerabilities
+from app.database_auditor import audit_database_service
 from app.email_service import (
     generate_and_store_otp, verify_otp_code, AUTHORIZED_EMAILS,
     generate_firewall_reset, verify_firewall_reset, consume_firewall_reset
@@ -49,7 +50,7 @@ from app.models import (
     VulnerabilityCreate, VulnerabilityUpdate, VulnerabilityResponse,
     SecurityControlCreate, SecurityControlUpdate, SecurityControlResponse,
     OptimizationRequest, SimulationRequest, MonteCarloRequest,
-    WebsiteScanRequest, GenericMessageResponse, BulkImportRequest
+    WebsiteScanRequest, DatabaseAuditRequest, GenericMessageResponse, BulkImportRequest
 )
 from app.waf import CyberQuantWAFMiddleware, get_waf_stats, reset_waf_stats
 
@@ -437,6 +438,27 @@ def delete_scan_endpoint(scan_id: int, auth: dict = Depends(require_auth(["admin
         raise HTTPException(status_code=404, detail="Scan record not found or already removed.")
     log_audit_event(action="SCAN_DELETED", username=auth.get("u"), details=f"Removed scan record ID: {scan_id}")
     return {"success": True, "message": f"Scan record {scan_id} deleted."}
+
+
+# Database Security Auditor API
+@app.post("/api/audit-database")
+def audit_database_endpoint(req: DatabaseAuditRequest):
+    result = audit_database_service(
+        engine=req.engine,
+        host=req.host,
+        port=req.port,
+        dbname=req.dbname,
+        username=req.username,
+        password=req.password,
+        is_demo=req.is_demo
+    )
+    
+    # Log audit event
+    log_audit_event(
+        action="DATABASE_AUDIT",
+        details=f"Audited {req.engine.upper()} @ {req.host}:{req.port} -> Score: {result.get('security_score')}/100 ({result.get('security_grade')})"
+    )
+    return result
 
 
 # Auth & Access Control API

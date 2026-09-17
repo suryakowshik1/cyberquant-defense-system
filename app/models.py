@@ -177,6 +177,19 @@ class WebsiteScanRequest(BaseModel):
     url: str = Field(..., min_length=3, max_length=1000, example="https://example.com", description="Target domain or URL to audit")
 
 # ==============================================================================
+# DATABASE AUDITOR SCHEMAS
+# ==============================================================================
+
+class DatabaseAuditRequest(BaseModel):
+    engine: str = Field(default="postgres", max_length=50, description="Database type: postgres, mysql, mssql, mongodb, sqlite")
+    host: str = Field(default="127.0.0.1", min_length=1, max_length=255, description="Host IP address or domain")
+    port: int = Field(default=5432, ge=1, le=65535, description="Database port number")
+    dbname: str = Field(default="production_db", max_length=100, description="Database name")
+    username: Optional[str] = Field(default="audit_user", max_length=100, description="Read-only audit username")
+    password: Optional[str] = Field(default=None, max_length=256, description="Read-only audit password")
+    is_demo: bool = Field(default=False, description="Enable simulated enterprise telemetry")
+
+# ==============================================================================
 # GENERIC & BULK IMPORT/EXPORT SCHEMAS
 # ==============================================================================
 

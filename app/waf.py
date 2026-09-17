@@ -167,7 +167,7 @@ class SlidingWindowRateLimiter:
         if now - self.last_cleanup > 300:
             self._cleanup(now)
 
-        is_sensitive = any(k in path.lower() for k in ("/api/auth/", "/auth/", "/firewall", "/scan-website"))
+        is_sensitive = any(k in path.lower() for k in ("/api/auth/", "/auth/", "/firewall", "/scan-website", "/audit-database"))
         window_duration = 60.0
 
         if is_sensitive:
